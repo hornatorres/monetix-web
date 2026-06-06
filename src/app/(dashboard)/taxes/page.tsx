@@ -3,9 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { authClient } from '@/lib/authClient';
 import { formatDate, formatCurrency, errMsg } from '@/lib/utils';
-import { AlertCircle, ChevronDown, ChevronRight, Plus } from 'lucide-react';
-
-// ── Tipos ─────────────────────────────────────────────────────
+import { Plus, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface Obligation {
   id: string; taxType: string; period: string; dueDate: string;
@@ -13,20 +11,20 @@ interface Obligation {
   paidAmount: number; balance: number;
 }
 
-interface TimelineMonth {
-  month: number; year: number; dueDate: string;
-  obligations: { id: string; taxType: string; status: string; taxAmount: number }[];
+interface MonthData {
+  month: number; year: number;
+  obligations: any[];
 }
 
 interface UitConfig { year: number; value: number; }
 interface TimConfig { rate: number; effectiveFrom: string; }
 
 const STATUS_BADGE: Record<string, string> = {
-  PENDING:   'mx-badge mx-badge-warning',
-  PAID:      'mx-badge mx-badge-success',
-  OVERDUE:   'mx-badge mx-badge-danger',
-  PARTIAL:   'mx-badge mx-badge-info',
-  DECLARED:  'mx-badge mx-badge-neutral',
+  PENDING:  'mx-badge mx-badge-warning',
+  PAID:     'mx-badge mx-badge-success',
+  OVERDUE:  'mx-badge mx-badge-danger',
+  PARTIAL:  'mx-badge mx-badge-info',
+  DECLARED: 'mx-badge mx-badge-neutral',
 };
 
 const MONTH_NAMES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
@@ -34,16 +32,25 @@ const MONTH_NAMES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct'
 // ── Tab: Cronograma ───────────────────────────────────────────
 
 function TimelineTab() {
-  const [year,    setYear]    = useState(new Date().getFullYear());
-  const [months,  setMonths]  = useState<TimelineMonth[]>([]);
-  const [expanded,setExpanded]= useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState('');
+  const [year,     setYear]     = useState(new Date().getFullYear());
+  const [months,   setMonths]   = useState<MonthData[]>([]);
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState('');
 
   const load = useCallback(() => {
     setLoading(true);
     authClient.get(`/taxes/timeline/${year}`)
-      .then(r => setMonths(Array.isArray(r.data) ? r.data : r.data?.months ?? []))
+      .then(r => {
+        // El backend devuelve { year, months: { "1": [], "2": [], ... }, totals }
+        const raw = r.data?.months ?? {};
+        const parsed: MonthData[] = Object.entries(raw).map(([month, obligations]) => ({
+          month:       Number(month),
+          year:        r.data.year ?? year,
+          obligations: Array.isArray(obligations) ? obligations : [],
+        }));
+        setMonths(parsed.sort((a, b) => a.month - b.month));
+      })
       .catch(ex => setError(errMsg(ex)))
       .finally(() => setLoading(false));
   }, [year]);
@@ -73,52 +80,40 @@ function TimelineTab() {
         <div className="grid grid-cols-3 gap-3">
           {[...Array(12)].map((_, i) => <div key={i} className="mx-skeleton h-24 rounded-2xl" />)}
         </div>
-      ) : months.length === 0 ? (
-        <div className="mx-card p-8 text-center text-sm text-[#86868B]">
-          Sin cronograma para {year}. Usa "Sync" para generar obligaciones.
-        </div>
       ) : (
         <div className="grid grid-cols-3 gap-3">
           {months.map(m => {
             const isCurrentMonth = m.month === now.getMonth() + 1 && m.year === now.getFullYear();
-            const isPast         = new Date(m.dueDate) < now;
             const isExpanded     = expanded === m.month;
-            const hasOverdue     = m.obligations?.some(o => o.status === 'OVERDUE');
+            const hasObligs      = m.obligations.length > 0;
 
             return (
               <div
                 key={m.month}
-                className={`mx-card p-4 cursor-pointer transition-all ${
-                  isCurrentMonth ? 'ring-2 ring-[#0071E3]' :
-                  hasOverdue     ? 'ring-1 ring-[#FF3B30]' : ''
-                }`}
+                className={`mx-card p-4 cursor-pointer transition-all ${isCurrentMonth ? 'ring-2 ring-[#0071E3]' : ''}`}
                 onClick={() => setExpanded(isExpanded ? null : m.month)}
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className={`text-sm font-medium ${isCurrentMonth ? 'text-[#0071E3]' : 'text-[#1D1D1F]'}`}>
                     {MONTH_NAMES[m.month - 1]}
                   </span>
-                  <div className="flex gap-1">
-                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  </div>
+                  {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </div>
-                <p className="text-xs text-[#86868B]">Vence: {formatDate(m.dueDate)}</p>
-                <p className="text-xs text-[#86868B] mt-0.5">{m.obligations?.length ?? 0} obligación(es)</p>
+                <p className="text-xs text-[#86868B]">{hasObligs ? `${m.obligations.length} obligación(es)` : 'Sin obligaciones'}</p>
 
-                {isExpanded && m.obligations?.length > 0 && (
-                  <div className="mt-3 space-y-2 border-t border-[#E5E5EA] pt-3">
-                    {m.obligations.map(o => (
-                      <div key={o.id} className="flex items-center justify-between">
-                        <span className="text-xs text-[#1D1D1F]">{o.taxType}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium">{formatCurrency(o.taxAmount)}</span>
-                          <span className={STATUS_BADGE[o.status] ?? 'mx-badge mx-badge-neutral'}>{o.status}</span>
-                        </div>
+                {isExpanded && (
+                  <div className="mt-3 border-t border-[#E5E5EA] pt-3 space-y-2">
+                    {hasObligs ? m.obligations.map((o: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between">
+                        <span className="text-xs">{o.taxType ?? o.type ?? 'Obligación'}</span>
+                        <span className={STATUS_BADGE[o.status] ?? 'mx-badge mx-badge-neutral'}>{o.status}</span>
                       </div>
-                    ))}
+                    )) : (
+                      <p className="text-xs text-[#86868B]">Sin obligaciones este mes</p>
+                    )}
                     <button
                       onClick={e => { e.stopPropagation(); handleSync(m.year, m.month); }}
-                      className="text-xs text-[#0071E3] hover:underline mt-1"
+                      className="text-xs text-[#0071E3] hover:underline mt-1 block"
                     >
                       Sincronizar período
                     </button>
@@ -193,11 +188,8 @@ function ObligationsTab() {
                   <td><span className={STATUS_BADGE[o.status] ?? 'mx-badge mx-badge-neutral'}>{o.status}</span></td>
                   <td>
                     {['PENDING','PARTIAL','OVERDUE'].includes(o.status) && (
-                      <button
-                        onClick={() => handlePay(o.id)}
-                        disabled={paying === o.id}
-                        className="text-xs text-[#0071E3] hover:underline"
-                      >
+                      <button onClick={() => handlePay(o.id)} disabled={paying === o.id}
+                        className="text-xs text-[#0071E3] hover:underline">
                         {paying === o.id ? 'Pagando…' : 'Pagar'}
                       </button>
                     )}
@@ -257,11 +249,12 @@ function ConfigTab() {
     <div className="space-y-4">
       {error && <div className="p-3 rounded-xl bg-[#FCEBEB] text-sm text-[#791F1F]">{error}</div>}
 
-      {/* UIT */}
       <div className="mx-card p-6">
         <h3 className="text-sm font-medium text-[#1D1D1F] mb-4">UIT — Unidad Impositiva Tributaria</h3>
         <div className="space-y-2 mb-4">
-          {uit.map((u, i) => (
+          {uit.length === 0 ? (
+            <p className="text-sm text-[#86868B]">Sin valores registrados</p>
+          ) : uit.map((u, i) => (
             <div key={i} className="flex justify-between text-sm">
               <span className="text-[#86868B]">{u.year}</span>
               <span className="font-medium">{formatCurrency(u.value)}</span>
@@ -271,20 +264,21 @@ function ConfigTab() {
         <form onSubmit={handleAddUit} className="flex gap-2">
           <input type="number" className="mx-input w-24" placeholder="Año" value={newUit.year}
             onChange={e => setNewUit(p => ({ ...p, year: Number(e.target.value) }))} />
-          <input type="number" className="mx-input w-32" placeholder="Valor" value={newUit.value || ''}
+          <input type="number" className="mx-input w-32" placeholder="Ej: 5350" value={newUit.value || ''}
             onChange={e => setNewUit(p => ({ ...p, value: Number(e.target.value) }))} />
           <button type="submit" className="mx-btn-primary text-sm"><Plus size={13} /> Agregar</button>
         </form>
       </div>
 
-      {/* TIM */}
       <div className="mx-card p-6">
         <h3 className="text-sm font-medium text-[#1D1D1F] mb-4">TIM — Tasa de Interés Moratorio</h3>
-        {tim && (
+        {tim ? (
           <div className="mb-4 flex justify-between text-sm">
             <span className="text-[#86868B]">Tasa vigente</span>
             <span className="font-medium">{tim.rate}% mensual</span>
           </div>
+        ) : (
+          <p className="text-sm text-[#86868B] mb-4">Sin tasa configurada</p>
         )}
         <form onSubmit={handleUpdateTim} className="flex gap-2">
           <input type="number" step="0.001" className="mx-input w-28" placeholder="Tasa %" value={newTim.rate || ''}

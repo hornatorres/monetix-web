@@ -9,7 +9,6 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { usePermissions } from '@/hooks/usePermissions';
-import { RoleBadge } from '@/components/RoleBadge';
 
 const NAV = [
   { href: '/dashboard',     label: 'Inicio',         icon: LayoutDashboard, permission: null },
@@ -28,6 +27,22 @@ const NAV = [
   { href: '/settings',      label: 'Configuración',   icon: Settings,        permission: 'canEditSettings' },
 ];
 
+const ROLE_LABEL: Record<string, string> = {
+  ADMIN:      'Administrador',
+  ACCOUNTANT: 'Contador',
+  SUPERVISOR: 'Supervisor',
+  OPERATOR:   'Operador',
+  VIEWER:     'Visor',
+};
+
+const ROLE_COLOR: Record<string, string> = {
+  ADMIN:      '#FF3B30',
+  ACCOUNTANT: '#9B59B6',
+  SUPERVISOR: '#0071E3',
+  OPERATOR:   '#34C759',
+  VIEWER:     '#86868B',
+};
+
 export function Sidebar() {
   const pathname    = usePathname();
   const router      = useRouter();
@@ -44,34 +59,128 @@ export function Sidebar() {
     return (permissions as any)[item.permission] === true;
   });
 
+  const initials = user
+    ? (user.firstName?.[0] ?? user.email[0]).toUpperCase()
+    : '?';
+
   return (
-    <aside className="mx-sidebar">
-      <div className="px-3 mb-6">
-        <span className="text-lg font-semibold text-[#1D1D1F]">Monetix</span>
+    <aside style={{
+      width: 230,
+      minHeight: '100vh',
+      background: '#FFFFFF',
+      borderRight: '0.5px solid #E5E5EA',
+      display: 'flex',
+      flexDirection: 'column',
+      padding: '20px 10px 16px',
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      zIndex: 40,
+    }}>
+      {/* Logo */}
+      <div style={{ padding: '0 10px 16px', borderBottom: '0.5px solid #F2F2F7' }}>
+        <div style={{ fontSize: 20, fontWeight: 700, color: '#1D1D1F', letterSpacing: '-0.3px' }}>
+          Monetix
+        </div>
         {user && (
-          <div className="mt-1.5 space-y-1">
-            <p className="text-xs text-[#86868B] truncate">{user.email}</p>
-            <RoleBadge />
+          <div style={{ marginTop: 4 }}>
+            <p style={{ fontSize: 12, color: '#86868B' }}>{user.email}</p>
+            <p style={{ fontSize: 11, fontWeight: 600, color: ROLE_COLOR[user.role] ?? '#86868B', marginTop: 2 }}>
+              {ROLE_LABEL[user.role] ?? user.role}
+            </p>
           </div>
         )}
       </div>
 
-      <nav className="flex-1 space-y-0.5">
+      {/* Nav */}
+      <nav style={{ flex: 1, paddingTop: 12 }}>
+        {/* Label de sección */}
+        <div style={{
+          fontSize: 10, fontWeight: 600, color: '#AEAEB2',
+          letterSpacing: '0.8px', textTransform: 'uppercase',
+          padding: '0 10px', marginBottom: 6,
+        }}>
+          NAVEGACIÓN
+        </div>
+
         {visibleNav.map(({ href, label, icon: Icon }) => {
-          const active = pathname.startsWith(href);
+          const active = pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
           return (
-            <Link key={href} href={href} className={`mx-sidebar-item ${active ? 'active' : ''}`}>
-              <Icon size={16} />
-              {label}
+            <Link key={href} href={href} style={{ textDecoration: 'none', display: 'block', marginBottom: 1 }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 10px',
+                borderRadius: 9,
+                background: active ? '#F2F2F7' : 'transparent',
+                transition: 'background 0.12s',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = '#F9F9F9'; }}
+              onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <Icon
+                    size={15}
+                    style={{ color: active ? '#0071E3' : '#86868B', flexShrink: 0 }}
+                  />
+                  <span style={{
+                    fontSize: 13,
+                    fontWeight: active ? 500 : 400,
+                    color: active ? '#1D1D1F' : '#3A3A3C',
+                  }}>
+                    {label}
+                  </span>
+                </div>
+                {/* Punto activo */}
+                {active && (
+                  <div style={{
+                    width: 6, height: 6, borderRadius: '50%',
+                    background: '#0071E3', flexShrink: 0,
+                  }} />
+                )}
+              </div>
             </Link>
           );
         })}
       </nav>
 
-      <button onClick={handleLogout} className="mx-sidebar-item w-full mt-4 text-[#FF3B30]">
-        <LogOut size={16} />
-        Cerrar sesión
-      </button>
+      {/* Footer — Avatar + Cerrar sesión */}
+      <div style={{ borderTop: '0.5px solid #F2F2F7', paddingTop: 12, marginTop: 8 }}>
+        <button
+          onClick={handleLogout}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            width: '100%', padding: '8px 10px', borderRadius: 9,
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            transition: 'background 0.12s',
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#FFF0EF'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+        >
+          {/* Avatar circular */}
+          <div style={{
+            width: 28, height: 28, borderRadius: '50%',
+            background: '#1D1D1F', color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 12, fontWeight: 600, flexShrink: 0,
+            position: 'relative',
+          }}>
+            {initials}
+            {/* Punto de notificación */}
+            <div style={{
+              position: 'absolute', bottom: 0, right: 0,
+              width: 8, height: 8, borderRadius: '50%',
+              background: '#34C759', border: '1.5px solid #fff',
+            }} />
+          </div>
+          <span style={{ fontSize: 13, color: '#FF3B30', fontWeight: 500 }}>
+            Cerrar sesión
+          </span>
+          <LogOut size={14} style={{ color: '#FF3B30', marginLeft: 'auto' }} />
+        </button>
+      </div>
     </aside>
   );
 }

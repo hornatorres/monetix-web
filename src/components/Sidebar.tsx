@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, FileText, Users, ShoppingCart,
   Truck, Package, RefreshCw, Building2,
-  BookOpen, Receipt, Landmark, Settings, LogOut, BarChart2,
+  BookOpen, Receipt, Landmark, Settings, LogOut, BarChart2, ClipboardList,
 } from 'lucide-react';
 
 import { useAuthStore } from '@/store/useAuthStore';
@@ -14,6 +14,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 const NAV = [
   { href: '/dashboard', label: 'Inicio', icon: LayoutDashboard },
   { href: '/invoices', label: 'Facturación', icon: FileText },
+  { href: '/quotes', label: 'Cotizaciones', icon: ClipboardList },
   { href: '/clients', label: 'Clientes', icon: Users },
   { href: '/purchases', label: 'Compras', icon: ShoppingCart },
   { href: '/suppliers', label: 'Proveedores', icon: Truck },

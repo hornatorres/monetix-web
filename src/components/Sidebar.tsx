@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+
 import {
   LayoutDashboard, FileText, Users, ShoppingCart,
   Truck, Package, RefreshCw, Building2,
-  BookOpen, Receipt, Landmark, Settings, LogOut,
+  BookOpen, Receipt, Landmark, Settings, LogOut, BarChart2,
 } from 'lucide-react';
+
 import { useAuthStore } from '@/store/useAuthStore';
 
 const NAV = [

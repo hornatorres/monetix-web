@@ -1,30 +1,25 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authClient } from '@/lib/authClient';
-import { usePermissions } from '@/hooks/usePermissions';
 import { formatCurrency, errMsg } from '@/lib/utils';
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
 
-interface Supplier { id:string;name:string;taxId:string; }
-interface Line { productName:string;productCode:string;productType:string;quantity:number;unitPrice:number;subtotal:number; }
+interface Line { id?:string;productName:string;productCode:string;productType:string;quantity:number;unitPrice:number;subtotal:number; }
 const IGV=0.18;
 
-export default function NewPurchasePage() {
+export default function EditPurchasePage() {
+  const { id }=useParams<{id:string}>();
   const router=useRouter();
-  const { canCreatePurchase }=usePermissions();
-  const [suppliers,setSuppliers]=useState<Supplier[]>([]);
-  const [supplierId,setSupplierId]=useState('');
-  const [date,setDate]=useState(new Date().toISOString().split('T')[0]);
+  const [date,setDate]=useState('');
   const [notes,setNotes]=useState('');
-  const [lines,setLines]=useState<Line[]>([{productName:'',productCode:'',productType:'ONE_TIME',quantity:1,unitPrice:0,subtotal:0}]);
-  const [loading,setLoading]=useState(false);
+  const [lines,setLines]=useState<Line[]>([]);
+  const [loading,setLoading]=useState(true);
+  const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
 
-  useEffect(()=>{ authClient.get('/suppliers').then(r=>setSuppliers(Array.isArray(r.data)?r.data:r.data?.data??[])).catch(()=>{}); },[]);
-
-  if(!canCreatePurchase) return <div style={{padding:24,background:'#FFF8E1',borderRadius:14,color:'#E65100',fontSize:13}}>Sin permisos.</div>;
+  useEffect(()=>{ authClient.get(`/purchases/${id}`).then(r=>{const p=r.data;setDate(p.purchaseDate??'');setNotes(p.notes??'');setLines((p.items??[]).map((item:any)=>({id:item.id,productName:item.productName??item.product_name??'',productCode:item.productCode??item.product_code??'',productType:item.productType??'ONE_TIME',quantity:Number(item.quantity),unitPrice:Number(item.unitPrice??item.unit_price),subtotal:Number(item.subtotal)})));}).catch(ex=>setError(errMsg(ex))).finally(()=>setLoading(false)); },[id]);
 
   const updateLine=(i:number,field:keyof Line,value:any)=>{ setLines(prev=>{const u=[...prev];(u[i] as any)[field]=value;u[i].subtotal=Number(u[i].quantity)*Number(u[i].unitPrice);return u;}); };
   const addLine=()=>setLines(p=>[...p,{productName:'',productCode:'',productType:'ONE_TIME',quantity:1,unitPrice:0,subtotal:0}]);
@@ -34,36 +29,33 @@ export default function NewPurchasePage() {
   const igv=subtotal*IGV;
   const total=subtotal+igv;
 
-  const handleSubmit=async(e:React.FormEvent)=>{ e.preventDefault();if(!supplierId){setError('Selecciona un proveedor');return;}setLoading(true);setError('');
-    try{const s=suppliers.find(s=>s.id===supplierId)!;await authClient.post('/purchases',{supplierId,supplierName:s.name,purchaseDate:date,currency:'PEN',igvRate:18,notes,items:lines.map((l,idx)=>({lineOrder:idx+1,productName:l.productName,productCode:l.productCode||null,productType:l.productType,quantity:Number(l.quantity),unitPrice:Number(l.unitPrice),subtotal:Number(l.subtotal)}))});router.push('/purchases');}
-    catch(ex){setError(errMsg(ex));setLoading(false);}
+  const handleSubmit=async(e:React.FormEvent)=>{ e.preventDefault();setSaving(true);setError('');
+    try{await authClient.put(`/purchases/${id}`,{purchaseDate:date,notes,items:lines.map((l,idx)=>({lineOrder:idx+1,productName:l.productName,productCode:l.productCode||null,productType:l.productType,quantity:Number(l.quantity),unitPrice:Number(l.unitPrice),subtotal:Number(l.subtotal)}))});router.push(`/purchases/${id}`);}
+    catch(ex){setError(errMsg(ex));setSaving(false);}
   };
+
+  if(loading) return <div className="mx-skeleton" style={{height:320,borderRadius:16,maxWidth:720}}/>;
 
   return (
     <div className="mx-fade-in" style={{maxWidth:720}}>
       <div className="mx-page-header">
         <div style={{display:'flex',alignItems:'center',gap:12}}>
-          <Link href="/purchases" className="mx-btn mx-btn-secondary" style={{padding:'8px 12px'}}><ArrowLeft size={15}/></Link>
-          <div><h1 className="mx-page-title">Nueva compra</h1><p className="mx-page-subtitle">Registra un gasto o compra a proveedor</p></div>
+          <Link href={`/purchases/${id}`} className="mx-btn mx-btn-secondary" style={{padding:'8px 12px'}}><ArrowLeft size={15}/></Link>
+          <div><h1 className="mx-page-title">Editar compra</h1><p className="mx-page-subtitle">Modifica los datos de esta compra</p></div>
         </div>
       </div>
       {error&&<div className="mx-alert mx-alert-error" style={{marginBottom:16}}>{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="mx-form-card">
-          <div className="mx-form-title">Datos de la compra</div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
-            <div style={{gridColumn:'1/-1'}}><label className="mx-label">Proveedor *</label><select className="mx-select" value={supplierId} onChange={e=>setSupplierId(e.target.value)} required><option value="">Seleccionar proveedor…</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name} — {s.taxId}</option>)}</select></div>
             <div><label className="mx-label">Fecha *</label><input type="date" className="mx-input" value={date} onChange={e=>setDate(e.target.value)} required/></div>
-            <div><label className="mx-label">Referencia / Notas</label><input className="mx-input" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="N° factura proveedor…"/></div>
+            <div><label className="mx-label">Notas</label><input className="mx-input" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Referencia…"/></div>
           </div>
         </div>
         <div className="mx-form-card" style={{padding:0,overflow:'hidden'}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 20px',borderBottom:'0.5px solid #E5E5EA'}}>
             <div className="mx-form-title" style={{margin:0}}>Ítems</div>
             <button type="button" onClick={addLine} className="mx-btn mx-btn-secondary" style={{padding:'7px 14px',fontSize:12}}><Plus size={13}/>Agregar ítem</button>
-          </div>
-          <div style={{display:'grid',gridTemplateColumns:'100px 1fr 80px 120px 36px',gap:8,padding:'8px 20px',background:'#FAFAFA',borderBottom:'0.5px solid #E5E5EA'}}>
-            {['Código','Descripción','Cant.','P. Unit.',''].map((h,i)=><div key={i} style={{fontSize:10,fontWeight:600,color:'#86868B',textTransform:'uppercase',letterSpacing:'0.5px'}}>{h}</div>)}
           </div>
           <div style={{padding:'12px 20px',display:'flex',flexDirection:'column',gap:8}}>
             {lines.map((line,i)=>(
@@ -85,8 +77,8 @@ export default function NewPurchasePage() {
           </div>
         </div>
         <div style={{display:'flex',justifyContent:'flex-end',gap:10,marginTop:8}}>
-          <Link href="/purchases" className="mx-btn mx-btn-secondary">Cancelar</Link>
-          <button type="submit" disabled={loading} className="mx-btn mx-btn-primary">{loading?'Guardando…':'Crear compra'}</button>
+          <Link href={`/purchases/${id}`} className="mx-btn mx-btn-secondary">Cancelar</Link>
+          <button type="submit" disabled={saving} className="mx-btn mx-btn-primary">{saving?'Guardando…':'Guardar cambios'}</button>
         </div>
       </form>
     </div>

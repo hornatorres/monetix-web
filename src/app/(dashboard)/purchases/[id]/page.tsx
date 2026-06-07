@@ -4,11 +4,12 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authClient } from '@/lib/authClient';
+import { usePermissions } from '@/hooks/usePermissions';
 import { formatDate, formatCurrency, errMsg } from '@/lib/utils';
 import { ArrowLeft, AlertCircle } from 'lucide-react';
 
 interface PurchaseItem {
-  id: string; lineOrder?: number; productName: string; productCode: string;
+  id: string; productName: string; productCode: string;
   quantity: number; unitPrice: number; subtotal: number;
 }
 
@@ -22,8 +23,10 @@ interface Purchase {
 }
 
 const STATUS_BADGE: Record<string, string> = {
-  DRAFT: 'mx-badge mx-badge-neutral', CONFIRMED: 'mx-badge mx-badge-info',
-  PARTIAL: 'mx-badge mx-badge-warning', PAID: 'mx-badge mx-badge-success',
+  DRAFT:     'mx-badge mx-badge-neutral',
+  CONFIRMED: 'mx-badge mx-badge-info',
+  PARTIAL:   'mx-badge mx-badge-warning',
+  PAID:      'mx-badge mx-badge-success',
   CANCELLED: 'mx-badge mx-badge-danger',
 };
 
@@ -34,7 +37,8 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function PurchaseDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
+  const router  = useRouter();
+  const { canEditPurchase, canCancelPurchase, canDeletePurchase } = usePermissions();
 
   const [purchase, setPurchase] = useState<Purchase | null>(null);
   const [loading,  setLoading]  = useState(true);
@@ -60,15 +64,12 @@ export default function PurchaseDetailPage() {
   };
 
   const handleDelete = async () => {
-    if (!confirm('¿Eliminar esta compra permanentemente? Esta acción no se puede deshacer.')) return;
+    if (!confirm('¿Eliminar esta compra permanentemente?')) return;
     setActing('delete');
     try {
       await authClient.delete(`/purchases/${id}/permanent`);
       router.push('/purchases');
-    } catch (ex) {
-      setError(errMsg(ex));
-      setActing('');
-    }
+    } catch (ex) { setError(errMsg(ex)); setActing(''); }
   };
 
   if (loading) return (
@@ -84,8 +85,9 @@ export default function PurchaseDetailPage() {
     </div>
   );
 
-  const canCancel = ['CONFIRMED', 'PARTIAL'].includes(purchase.status);
-  const canDelete = purchase.status === 'CANCELLED';
+  const canEdit   = canEditPurchase   && purchase.status === 'CONFIRMED';
+  const canCancel = canCancelPurchase && ['CONFIRMED','PARTIAL'].includes(purchase.status);
+  const canDelete = canDeletePurchase && purchase.status === 'CANCELLED';
 
   return (
     <div className="mx-fade-in max-w-3xl">
@@ -101,6 +103,11 @@ export default function PurchaseDetailPage() {
           <span className={STATUS_BADGE[purchase.status] ?? 'mx-badge mx-badge-neutral'}>
             {STATUS_LABEL[purchase.status] ?? purchase.status}
           </span>
+          {canEdit && (
+            <Link href={`/purchases/${id}/edit`} className="mx-btn-secondary text-sm">
+              Editar
+            </Link>
+          )}
           {canCancel && (
             <button onClick={handleCancel} disabled={!!acting} className="mx-btn-secondary text-sm">
               {acting === 'cancel' ? 'Cancelando…' : 'Cancelar'}
@@ -116,41 +123,23 @@ export default function PurchaseDetailPage() {
 
       {error && <div className="mb-4 p-3 rounded-xl bg-[#FCEBEB] text-sm text-[#791F1F]">{error}</div>}
 
-      {/* Datos */}
       <div className="mx-card p-6 mb-4">
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-xs text-[#86868B] mb-1">Proveedor</p>
-            <p className="text-sm font-medium">{purchase.supplierName}</p>
-          </div>
-          <div>
-            <p className="text-xs text-[#86868B] mb-1">Fecha</p>
-            <p className="text-sm">{formatDate(purchase.purchaseDate)}</p>
-          </div>
+          <div><p className="text-xs text-[#86868B] mb-1">Proveedor</p><p className="text-sm font-medium">{purchase.supplierName}</p></div>
+          <div><p className="text-xs text-[#86868B] mb-1">Fecha</p><p className="text-sm">{formatDate(purchase.purchaseDate)}</p></div>
           {purchase.appliesRetention && purchase.retentionAmount && (
-            <div>
-              <p className="text-xs text-[#86868B] mb-1">Retención ({purchase.retentionRate}%)</p>
-              <p className="text-sm">{formatCurrency(purchase.retentionAmount)}</p>
-            </div>
+            <div><p className="text-xs text-[#86868B] mb-1">Retención ({purchase.retentionRate}%)</p><p className="text-sm">{formatCurrency(purchase.retentionAmount)}</p></div>
           )}
           {purchase.notes && (
-            <div className="col-span-2">
-              <p className="text-xs text-[#86868B] mb-1">Notas</p>
-              <p className="text-sm">{purchase.notes}</p>
-            </div>
+            <div className="col-span-2"><p className="text-xs text-[#86868B] mb-1">Notas</p><p className="text-sm">{purchase.notes}</p></div>
           )}
         </div>
       </div>
 
-      {/* Líneas */}
       <div className="mx-card overflow-hidden mb-4">
-        <div className="px-4 py-3 border-b border-[#E5E5EA]">
-          <h3 className="text-sm font-medium">Detalle</h3>
-        </div>
+        <div className="px-4 py-3 border-b border-[#E5E5EA]"><h3 className="text-sm font-medium">Detalle</h3></div>
         <table className="mx-table">
-          <thead>
-            <tr><th>Descripción</th><th>Código</th><th>Cant.</th><th>P. Unit.</th><th>Subtotal</th></tr>
-          </thead>
+          <thead><tr><th>Descripción</th><th>Código</th><th>Cant.</th><th>P. Unit.</th><th>Subtotal</th></tr></thead>
           <tbody>
             {purchase.items.map(item => (
               <tr key={item.id}>
@@ -163,21 +152,11 @@ export default function PurchaseDetailPage() {
             ))}
           </tbody>
         </table>
-
         <div className="px-4 py-4 border-t border-[#E5E5EA] flex justify-end">
           <div className="space-y-1 min-w-48">
-            <div className="flex justify-between text-sm">
-              <span className="text-[#86868B]">Subtotal</span>
-              <span>{formatCurrency(purchase.subtotal)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-[#86868B]">IGV ({purchase.igvRate}%)</span>
-              <span>{formatCurrency(purchase.igvAmount)}</span>
-            </div>
-            <div className="flex justify-between text-sm font-semibold border-t border-[#E5E5EA] pt-1 mt-1">
-              <span>Total</span>
-              <span>{formatCurrency(purchase.totalAmount)}</span>
-            </div>
+            <div className="flex justify-between text-sm"><span className="text-[#86868B]">Subtotal</span><span>{formatCurrency(purchase.subtotal)}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-[#86868B]">IGV ({purchase.igvRate}%)</span><span>{formatCurrency(purchase.igvAmount)}</span></div>
+            <div className="flex justify-between text-sm font-semibold border-t border-[#E5E5EA] pt-1 mt-1"><span>Total</span><span>{formatCurrency(purchase.totalAmount)}</span></div>
           </div>
         </div>
       </div>

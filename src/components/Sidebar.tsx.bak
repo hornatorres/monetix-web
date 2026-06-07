@@ -39,6 +39,7 @@ export function Sidebar() {
     router.replace('/login');
   };
 
+  // Filtrar rutas según permisos
   const visibleNav = NAV.filter(item => {
     if (!item.permission) return true;
     return (permissions as any)[item.permission] === true;
@@ -46,6 +47,7 @@ export function Sidebar() {
 
   return (
     <aside className="mx-sidebar">
+      {/* Logo + usuario */}
       <div className="px-3 mb-6">
         <span className="text-lg font-semibold text-[#1D1D1F]">Monetix</span>
         {user && (
@@ -56,11 +58,16 @@ export function Sidebar() {
         )}
       </div>
 
+      {/* Nav */}
       <nav className="flex-1 space-y-0.5">
         {visibleNav.map(({ href, label, icon: Icon }) => {
           const active = pathname.startsWith(href);
           return (
-            <Link key={href} href={href} className={`mx-sidebar-item ${active ? 'active' : ''}`}>
+            <Link
+              key={href}
+              href={href}
+              className={`mx-sidebar-item ${active ? 'active' : ''}`}
+            >
               <Icon size={16} />
               {label}
             </Link>
@@ -68,7 +75,11 @@ export function Sidebar() {
         })}
       </nav>
 
-      <button onClick={handleLogout} className="mx-sidebar-item w-full mt-4 text-[#FF3B30]">
+      {/* Logout */}
+      <button
+        onClick={handleLogout}
+        className="mx-sidebar-item w-full mt-4 text-[#FF3B30]"
+      >
         <LogOut size={16} />
         Cerrar sesión
       </button>

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authClient } from '@/lib/authClient';
+import { usePermissions } from '@/hooks/usePermissions';
 import { formatDate, formatCurrency, errMsg } from '@/lib/utils';
 import { ArrowLeft, AlertCircle } from 'lucide-react';
 
@@ -84,8 +85,9 @@ export default function InvoiceDetailPage() {
     </div>
   );
 
-  const canIssue = invoice.status === 'DRAFT';
-  const canAnnul = ['ISSUED','PARTIAL','OVERDUE'].includes(invoice.status);
+  const { canIssueInvoice, canAnnulInvoice } = usePermissions();
+  const canIssue = invoice.status === 'DRAFT' && canIssueInvoice;
+  const canAnnul = ['ISSUED','PARTIAL','OVERDUE'].includes(invoice.status) && canAnnulInvoice;
 
   return (
     <div className="mx-fade-in max-w-3xl">

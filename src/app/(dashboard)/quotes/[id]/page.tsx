@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { authClient } from '@/lib/authClient';
+import { usePermissions } from '@/hooks/usePermissions';
 import { formatDate, formatCurrency, errMsg } from '@/lib/utils';
 import { ArrowLeft, AlertCircle, FileText } from 'lucide-react';
 
@@ -41,6 +42,10 @@ const STATUS_LABEL: Record<string, string> = {
 export default function QuoteDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router  = useRouter();
+  const {
+    canSendQuote, canAcceptQuote, canRejectQuote,
+    canConvertQuote, canDeleteQuote,
+  } = usePermissions();
 
   const [quote,   setQuote]   = useState<Quote | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,7 +77,7 @@ export default function QuoteDetailPage() {
     if (!reason?.trim()) return;
     await action('reject', { reason }, 'reject');
   };
-  const handleDelete  = async () => {
+  const handleDelete = async () => {
     if (!confirm('¿Eliminar esta cotización?')) return;
     try {
       await authClient.delete(`/quotes/${id}`);
@@ -110,27 +115,27 @@ export default function QuoteDetailPage() {
             {STATUS_LABEL[quote.status] ?? quote.status}
           </span>
 
-          {quote.status === 'DRAFT' && (
-            <>
-              <button onClick={handleSend} disabled={isBusy} className="mx-btn-primary text-sm">
-                {acting === 'send' ? 'Enviando…' : 'Enviar'}
-              </button>
-              <button onClick={handleDelete} disabled={isBusy} className="mx-btn-danger text-sm">
-                Eliminar
-              </button>
-            </>
+          {quote.status === 'DRAFT' && canSendQuote && (
+            <button onClick={handleSend} disabled={isBusy} className="mx-btn-primary text-sm">
+              {acting === 'send' ? 'Enviando…' : 'Enviar'}
+            </button>
           )}
-          {quote.status === 'SENT' && (
-            <>
-              <button onClick={handleAccept} disabled={isBusy} className="mx-btn-primary text-sm">
-                {acting === 'accept' ? 'Aceptando…' : 'Aceptar'}
-              </button>
-              <button onClick={handleReject} disabled={isBusy} className="mx-btn-danger text-sm">
-                {acting === 'reject' ? 'Rechazando…' : 'Rechazar'}
-              </button>
-            </>
+          {quote.status === 'DRAFT' && canDeleteQuote && (
+            <button onClick={handleDelete} disabled={isBusy} className="mx-btn-danger text-sm">
+              Eliminar
+            </button>
           )}
-          {quote.status === 'ACCEPTED' && (
+          {quote.status === 'SENT' && canAcceptQuote && (
+            <button onClick={handleAccept} disabled={isBusy} className="mx-btn-primary text-sm">
+              {acting === 'accept' ? 'Aceptando…' : 'Aceptar'}
+            </button>
+          )}
+          {quote.status === 'SENT' && canRejectQuote && (
+            <button onClick={handleReject} disabled={isBusy} className="mx-btn-danger text-sm">
+              {acting === 'reject' ? 'Rechazando…' : 'Rechazar'}
+            </button>
+          )}
+          {quote.status === 'ACCEPTED' && canConvertQuote && (
             <button onClick={handleConvert} disabled={isBusy} className="mx-btn-primary text-sm">
               {acting === 'convert' ? 'Convirtiendo…' : '→ Convertir a factura'}
             </button>
@@ -146,7 +151,6 @@ export default function QuoteDetailPage() {
 
       {error && <div className="mb-4 p-3 rounded-xl bg-[#FCEBEB] text-sm text-[#791F1F]">{error}</div>}
 
-      {/* Datos */}
       <div className="mx-card p-6 mb-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -166,48 +170,23 @@ export default function QuoteDetailPage() {
             <p className="text-xs text-[#86868B] mb-1">Válida hasta</p>
             <p className="text-sm">{formatDate(quote.valid_until)}</p>
           </div>
-          {quote.sent_at && (
-            <div>
-              <p className="text-xs text-[#86868B] mb-1">Enviada</p>
-              <p className="text-sm">{formatDate(quote.sent_at)}</p>
-            </div>
-          )}
-          {quote.accepted_at && (
-            <div>
-              <p className="text-xs text-[#86868B] mb-1">Aceptada</p>
-              <p className="text-sm">{formatDate(quote.accepted_at)}</p>
-            </div>
-          )}
+          {quote.sent_at && <div><p className="text-xs text-[#86868B] mb-1">Enviada</p><p className="text-sm">{formatDate(quote.sent_at)}</p></div>}
+          {quote.accepted_at && <div><p className="text-xs text-[#86868B] mb-1">Aceptada</p><p className="text-sm">{formatDate(quote.accepted_at)}</p></div>}
           {quote.rejected_at && (
             <div className="col-span-2">
               <p className="text-xs text-[#86868B] mb-1">Rechazada</p>
               <p className="text-sm text-[#FF3B30]">{formatDate(quote.rejected_at)} — {quote.rejection_reason}</p>
             </div>
           )}
-          {quote.notes && (
-            <div className="col-span-2">
-              <p className="text-xs text-[#86868B] mb-1">Notas</p>
-              <p className="text-sm">{quote.notes}</p>
-            </div>
-          )}
-          {quote.conditions && (
-            <div className="col-span-2">
-              <p className="text-xs text-[#86868B] mb-1">Condiciones</p>
-              <p className="text-sm">{quote.conditions}</p>
-            </div>
-          )}
+          {quote.notes && <div className="col-span-2"><p className="text-xs text-[#86868B] mb-1">Notas</p><p className="text-sm">{quote.notes}</p></div>}
+          {quote.conditions && <div className="col-span-2"><p className="text-xs text-[#86868B] mb-1">Condiciones</p><p className="text-sm">{quote.conditions}</p></div>}
         </div>
       </div>
 
-      {/* Líneas */}
       <div className="mx-card overflow-hidden mb-4">
-        <div className="px-4 py-3 border-b border-[#E5E5EA]">
-          <h3 className="text-sm font-medium">Detalle</h3>
-        </div>
+        <div className="px-4 py-3 border-b border-[#E5E5EA]"><h3 className="text-sm font-medium">Detalle</h3></div>
         <table className="mx-table">
-          <thead>
-            <tr><th>#</th><th>Descripción</th><th>Cant.</th><th>P. Unit.</th><th>Desc.</th><th>Subtotal</th></tr>
-          </thead>
+          <thead><tr><th>#</th><th>Descripción</th><th>Cant.</th><th>P. Unit.</th><th>Desc.</th><th>Subtotal</th></tr></thead>
           <tbody>
             {quote.items.map(item => (
               <tr key={item.id}>
@@ -224,21 +203,11 @@ export default function QuoteDetailPage() {
             ))}
           </tbody>
         </table>
-
         <div className="px-4 py-4 border-t border-[#E5E5EA] flex justify-end">
           <div className="space-y-1 min-w-48">
-            <div className="flex justify-between text-sm">
-              <span className="text-[#86868B]">Subtotal</span>
-              <span>{formatCurrency(quote.subtotal, quote.currency)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-[#86868B]">IGV ({(Number(quote.igv_rate) * 100).toFixed(0)}%)</span>
-              <span>{formatCurrency(quote.igv_amount, quote.currency)}</span>
-            </div>
-            <div className="flex justify-between text-sm font-semibold border-t border-[#E5E5EA] pt-1 mt-1">
-              <span>Total</span>
-              <span>{formatCurrency(quote.total_amount, quote.currency)}</span>
-            </div>
+            <div className="flex justify-between text-sm"><span className="text-[#86868B]">Subtotal</span><span>{formatCurrency(quote.subtotal, quote.currency)}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-[#86868B]">IGV ({(Number(quote.igv_rate) * 100).toFixed(0)}%)</span><span>{formatCurrency(quote.igv_amount, quote.currency)}</span></div>
+            <div className="flex justify-between text-sm font-semibold border-t border-[#E5E5EA] pt-1 mt-1"><span>Total</span><span>{formatCurrency(quote.total_amount, quote.currency)}</span></div>
           </div>
         </div>
       </div>

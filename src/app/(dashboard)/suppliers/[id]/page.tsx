@@ -39,7 +39,7 @@ export default function SupplierDetailPage() {
   const handleSave = async () => {
     setSaving(true); setError('');
     try {
-      const r = await authClient.put(`/suppliers/${id}`, { name: form.name, taxId: form.taxId, currency: form.currency, paymentTermsDays: Number(form.paymentTermsDays), contact: { name: form.contactName, email: form.contactEmail, phone: form.contactPhone } });
+      const r = await authClient.put(`/suppliers/${id}`, { name: form.name, taxId: form.taxId, currency: form.currency, paymentTermsDays: Number(form.paymentTermsDays), contactName: form.contactName, contactEmail: form.contactEmail, contactPhone: form.contactPhone });
       setSupplier(r.data); setEditing(false);
     } catch (ex) { setError(errMsg(ex)); }
     finally { setSaving(false); }

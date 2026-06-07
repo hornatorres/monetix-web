@@ -10,23 +10,24 @@ import {
 import { useAuthStore } from '@/store/useAuthStore';
 
 const NAV = [
-  { href: '/dashboard',     label: 'Inicio',         icon: LayoutDashboard },
-  { href: '/invoices',      label: 'Facturación',     icon: FileText },
-  { href: '/clients',       label: 'Clientes',        icon: Users },
-  { href: '/purchases',     label: 'Compras',         icon: ShoppingCart },
-  { href: '/suppliers',     label: 'Proveedores',     icon: Truck },
-  { href: '/products',      label: 'Productos',       icon: Package },
-  { href: '/subscriptions', label: 'Suscripciones',   icon: RefreshCw },
-  { href: '/assets',        label: 'Activos fijos',   icon: Building2 },
-  { href: '/accounting',    label: 'Contabilidad',    icon: BookOpen },
-  { href: '/taxes',         label: 'Impuestos',       icon: Receipt },
-  { href: '/collections',   label: 'Tesorería',       icon: Landmark },
-  { href: '/settings',      label: 'Configuración',   icon: Settings },
+  { href: '/dashboard', label: 'Inicio', icon: LayoutDashboard },
+  { href: '/invoices', label: 'Facturación', icon: FileText },
+  { href: '/clients', label: 'Clientes', icon: Users },
+  { href: '/purchases', label: 'Compras', icon: ShoppingCart },
+  { href: '/suppliers', label: 'Proveedores', icon: Truck },
+  { href: '/products', label: 'Productos', icon: Package },
+  { href: '/subscriptions', label: 'Suscripciones', icon: RefreshCw },
+  { href: '/assets', label: 'Activos fijos', icon: Building2 },
+  { href: '/accounting', label: 'Contabilidad', icon: BookOpen },
+  { href: '/taxes', label: 'Impuestos', icon: Receipt },
+  { href: '/collections', label: 'Tesorería', icon: Landmark },
+  { href: '/reports', label: 'Reportes', icon: BarChart2 },
+  { href: '/settings', label: 'Configuración', icon: Settings },
 ];
 
 export function Sidebar() {
-  const pathname  = usePathname();
-  const router    = useRouter();
+  const pathname = usePathname();
+  const router = useRouter();
   const { user, clearAuth } = useAuthStore();
 
   const handleLogout = () => {

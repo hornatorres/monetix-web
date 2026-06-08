@@ -6,21 +6,24 @@ import { formatDate, formatCurrency, errMsg } from '@/lib/utils';
 import { Plus, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface Obligation {
-  id:string; taxType:string; period:string; dueDate:string;
-  baseAmount:number; taxAmount:number; status:string;
-  paidAmount:number; balance:number;
+  id:string; type:string; regime:string;
+  periodYear:number; periodMonth:number|null;
+  baseAmount:number; taxRate:number; grossAmount:number;
+  balanceAmount:number; paidAmount:number;
+  dueDate:string; status:string; declarationStatus:string;
 }
+
 interface UitConfig { year:number; value:number; }
-interface TimConfig { rate:number; effectiveFrom:string; }
+interface TimConfig { rate:number; validFrom:string; }
 
 const MONTH_NAMES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
 const STATUS_BADGE: Record<string,string> = {
-  PENDING:  'mx-badge mx-badge-warning',
-  PAID:     'mx-badge mx-badge-success',
-  OVERDUE:  'mx-badge mx-badge-danger',
-  PARTIAL:  'mx-badge mx-badge-info',
-  DECLARED: 'mx-badge mx-badge-neutral',
+  PENDING:   'mx-badge mx-badge-warning',
+  PAID:      'mx-badge mx-badge-success',
+  OVERDUE:   'mx-badge mx-badge-danger',
+  PARTIAL:   'mx-badge mx-badge-info',
+  DECLARED:  'mx-badge mx-badge-neutral',
 };
 
 // ── Tab: Cronograma ───────────────────────────────────────────
@@ -63,39 +66,32 @@ function TimelineTab() {
         <span style={{ fontSize:18, fontWeight:600, color:'#1D1D1F', width:60, textAlign:'center' }}>{year}</span>
         <button onClick={() => setYear(y => y+1)} className="mx-btn mx-btn-secondary" style={{ padding:'7px 14px' }}>→</button>
       </div>
-
       {error && <div className="mx-alert mx-alert-error" style={{ marginBottom:16 }}>{error}</div>}
-
       {loading ? (
         <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
           {[...Array(12)].map((_,i) => <div key={i} className="mx-skeleton" style={{ height:80, borderRadius:14 }}/>)}
         </div>
       ) : months.length === 0 ? (
-        <div className="mx-empty">Sin cronograma para {year}. Usa "Sincronizar" en cada mes.</div>
+        <div className="mx-empty">Sin cronograma para {year}.</div>
       ) : (
         <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
           {months.map(m => {
             const isCurrent = m.month === now.getMonth()+1 && m.year === now.getFullYear();
-            const isOpen = expanded === m.month;
-            const hasObs = m.obligations.length > 0;
+            const isOpen    = expanded === m.month;
+            const hasObs    = m.obligations.length > 0;
             return (
-              <div key={m.month}
-                onClick={() => setExpanded(isOpen ? null : m.month)}
-                style={{ background:'#fff', borderRadius:14, border:`1px solid ${isCurrent ? '#0071E3' : '#E5E5EA'}`, padding:16, cursor:'pointer', transition:'box-shadow 0.1s', boxShadow: isCurrent ? '0 0 0 2px rgba(0,113,227,0.15)' : 'none' }}
-              >
+              <div key={m.month} onClick={() => setExpanded(isOpen ? null : m.month)}
+                style={{ background:'#fff', borderRadius:14, border:`1px solid ${isCurrent?'#0071E3':'#E5E5EA'}`, padding:16, cursor:'pointer', boxShadow: isCurrent ? '0 0 0 2px rgba(0,113,227,0.15)' : 'none' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-                  <span style={{ fontSize:14, fontWeight:600, color: isCurrent ? '#0071E3' : '#1D1D1F' }}>
-                    {MONTH_NAMES[m.month-1]}
-                  </span>
+                  <span style={{ fontSize:14, fontWeight:600, color: isCurrent ? '#0071E3' : '#1D1D1F' }}>{MONTH_NAMES[m.month-1]}</span>
                   {isOpen ? <ChevronDown size={14} color="#86868B"/> : <ChevronRight size={14} color="#86868B"/>}
                 </div>
                 <p style={{ fontSize:12, color:'#86868B' }}>{hasObs ? `${m.obligations.length} obligación(es)` : 'Sin obligaciones'}</p>
-
                 {isOpen && (
                   <div style={{ marginTop:12, borderTop:'0.5px solid #F2F2F7', paddingTop:10 }}>
                     {hasObs ? m.obligations.map((o:any, i:number) => (
                       <div key={i} style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                        <span style={{ fontSize:12 }}>{o.taxType ?? o.type ?? 'Obligación'}</span>
+                        <span style={{ fontSize:12 }}>{o.type ?? o.taxType ?? 'Obligación'}</span>
                         <span className={STATUS_BADGE[o.status] ?? 'mx-badge mx-badge-neutral'}>{o.status}</span>
                       </div>
                     )) : <p style={{ fontSize:12, color:'#86868B' }}>Sin obligaciones</p>}
@@ -136,10 +132,19 @@ function ObligationsTab() {
     if (!amount) return;
     setPaying(id);
     try {
-      await authClient.post(`/taxes/obligations/${id}/pay`, { amount:Number(amount), paymentDate:new Date().toISOString().split('T')[0], paymentMethod:'TRANSFERENCIA' });
+      await authClient.post(`/taxes/obligations/${id}/pay`, {
+        amount: Number(amount),
+        paymentDate: new Date().toISOString().split('T')[0],
+        paymentMethod: 'TRANSFERENCIA',
+      });
       load();
     } catch (ex) { setError(errMsg(ex)); }
     finally { setPaying(null); }
+  };
+
+  const periodLabel = (o: Obligation) => {
+    if (o.periodMonth) return `${MONTH_NAMES[o.periodMonth-1]} ${o.periodYear}`;
+    return String(o.periodYear);
   };
 
   return (
@@ -154,16 +159,22 @@ function ObligationsTab() {
           <div className="mx-empty">Sin obligaciones registradas</div>
         ) : (
           <table className="mx-table">
-            <thead><tr><th>Tipo</th><th>Período</th><th>Vencimiento</th><th>Importe</th><th>Pagado</th><th>Saldo</th><th>Estado</th><th></th></tr></thead>
+            <thead>
+              <tr><th>Tipo</th><th>Régimen</th><th>Período</th><th>Vencimiento</th><th>Base</th><th>Impuesto</th><th>Pagado</th><th>Saldo</th><th>Estado</th><th></th></tr>
+            </thead>
             <tbody>
               {obligations.map(o => (
                 <tr key={o.id}>
-                  <td style={{ fontWeight:500 }}>{o.taxType}</td>
-                  <td style={{ color:'#86868B' }}>{o.period}</td>
+                  <td style={{ fontWeight:600 }}>{o.type}</td>
+                  <td style={{ color:'#86868B', fontSize:12 }}>{o.regime}</td>
+                  <td style={{ color:'#86868B' }}>{periodLabel(o)}</td>
                   <td style={{ color:'#86868B' }}>{formatDate(o.dueDate)}</td>
-                  <td>{formatCurrency(o.taxAmount)}</td>
+                  <td>{formatCurrency(o.baseAmount)}</td>
+                  <td style={{ fontWeight:600 }}>{formatCurrency(o.grossAmount)}</td>
                   <td style={{ color:'#34C759' }}>{formatCurrency(o.paidAmount)}</td>
-                  <td style={{ fontWeight:600, color: Number(o.balance)>0 ? '#FF3B30' : '#86868B' }}>{formatCurrency(o.balance)}</td>
+                  <td style={{ fontWeight:600, color: Number(o.balanceAmount)>0 ? '#FF3B30' : '#86868B' }}>
+                    {formatCurrency(o.balanceAmount)}
+                  </td>
                   <td><span className={STATUS_BADGE[o.status] ?? 'mx-badge mx-badge-neutral'}>{o.status}</span></td>
                   <td>
                     {['PENDING','PARTIAL','OVERDUE'].includes(o.status) && (
@@ -190,10 +201,13 @@ function ConfigTab() {
   const [tim,     setTim]     = useState<TimConfig|null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
+  const [success, setSuccess] = useState('');
   const [newUit,  setNewUit]  = useState({ year:new Date().getFullYear(), value:0 });
-  const [newTim,  setNewTim]  = useState({ rate:0, effectiveFrom:new Date().toISOString().split('T')[0] });
+  // TIM: rate es decimal (0.00040 = 0.04% diario), validFrom es ISO date
+  const [newTim,  setNewTim]  = useState({ rate:'', validFrom:new Date().toISOString().split('T')[0] });
 
-  useEffect(() => {
+  const loadData = () => {
+    setLoading(true);
     Promise.all([
       authClient.get('/taxes/config/uit').catch(() => ({ data:[] })),
       authClient.get('/taxes/config/tim').catch(() => ({ data:null })),
@@ -201,26 +215,41 @@ function ConfigTab() {
       setUit(Array.isArray(u.data) ? u.data : []);
       setTim(t.data);
     }).finally(() => setLoading(false));
-  }, []);
+  };
+  useEffect(() => { loadData(); }, []);
 
   const handleAddUit = async (e:React.FormEvent) => {
-    e.preventDefault();
-    try { await authClient.post('/taxes/config/uit', newUit); const r=await authClient.get('/taxes/config/uit'); setUit(Array.isArray(r.data)?r.data:[]); }
-    catch (ex) { setError(errMsg(ex)); }
+    e.preventDefault(); setError(''); setSuccess('');
+    try {
+      await authClient.post('/taxes/config/uit', { year:Number(newUit.year), value:Number(newUit.value) });
+      const r = await authClient.get('/taxes/config/uit');
+      setUit(Array.isArray(r.data) ? r.data : []);
+      setSuccess('UIT guardada');
+    } catch (ex) { setError(errMsg(ex)); }
   };
 
   const handleUpdateTim = async (e:React.FormEvent) => {
-    e.preventDefault();
-    try { await authClient.post('/taxes/config/tim', newTim); const r=await authClient.get('/taxes/config/tim'); setTim(r.data); }
-    catch (ex) { setError(errMsg(ex)); }
+    e.preventDefault(); setError(''); setSuccess('');
+    try {
+      // Backend espera: rate (número decimal, ej: 0.00040) + validFrom (ISO date string)
+      await authClient.post('/taxes/config/tim', {
+        rate:      Number(newTim.rate),
+        validFrom: newTim.validFrom,
+      });
+      const r = await authClient.get('/taxes/config/tim').catch(() => ({ data:null }));
+      setTim(r.data);
+      setSuccess('TIM actualizada');
+    } catch (ex) { setError(errMsg(ex)); }
   };
 
   if (loading) return <div className="mx-skeleton" style={{ height:200, borderRadius:16 }}/>;
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:16, maxWidth:520 }}>
-      {error && <div className="mx-alert mx-alert-error">{error}</div>}
+      {error   && <div className="mx-alert mx-alert-error">{error}</div>}
+      {success && <div className="mx-alert mx-alert-success">{success}</div>}
 
+      {/* UIT */}
       <div className="mx-form-card">
         <div className="mx-form-title">UIT — Unidad Impositiva Tributaria</div>
         {uit.length > 0 && (
@@ -234,24 +263,53 @@ function ConfigTab() {
           </div>
         )}
         <form onSubmit={handleAddUit} style={{ display:'flex', gap:8 }}>
-          <input type="number" className="mx-input" style={{ width:90 }} placeholder="Año" value={newUit.year} onChange={e => setNewUit(p=>({...p,year:Number(e.target.value)}))} />
-          <input type="number" className="mx-input" placeholder="Valor (ej: 5350)" value={newUit.value||''} onChange={e => setNewUit(p=>({...p,value:Number(e.target.value)}))} />
-          <button type="submit" className="mx-btn mx-btn-primary" style={{ whiteSpace:'nowrap' }}><Plus size={13}/>Agregar</button>
+          <div style={{ flex:'0 0 90px' }}>
+            <label className="mx-label">Año</label>
+            <input type="number" className="mx-input" value={newUit.year}
+              onChange={e => setNewUit(p=>({...p,year:Number(e.target.value)}))} />
+          </div>
+          <div style={{ flex:1 }}>
+            <label className="mx-label">Valor (S/)</label>
+            <input type="number" className="mx-input" placeholder="5350"
+              value={newUit.value||''}
+              onChange={e => setNewUit(p=>({...p,value:Number(e.target.value)}))} />
+          </div>
+          <div style={{ display:'flex', alignItems:'flex-end' }}>
+            <button type="submit" className="mx-btn mx-btn-primary"><Plus size={13}/>Agregar</button>
+          </div>
         </form>
       </div>
 
+      {/* TIM */}
       <div className="mx-form-card">
         <div className="mx-form-title">TIM — Tasa de Interés Moratorio</div>
         {tim && (
           <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, marginBottom:16, padding:'8px 0', borderBottom:'0.5px solid #F2F2F7' }}>
             <span style={{ color:'#86868B' }}>Tasa vigente</span>
-            <span style={{ fontWeight:600 }}>{tim.rate}% mensual</span>
+            <span style={{ fontWeight:600 }}>
+              {(Number(tim.rate) * 100).toFixed(4)}% · desde {formatDate(tim.validFrom)}
+            </span>
           </div>
         )}
-        <form onSubmit={handleUpdateTim} style={{ display:'flex', gap:8 }}>
-          <input type="number" step="0.001" className="mx-input" style={{ width:110 }} placeholder="Tasa %" value={newTim.rate||''} onChange={e => setNewTim(p=>({...p,rate:Number(e.target.value)}))} />
-          <input type="date" className="mx-input" value={newTim.effectiveFrom} onChange={e => setNewTim(p=>({...p,effectiveFrom:e.target.value}))} />
-          <button type="submit" className="mx-btn mx-btn-primary">Actualizar</button>
+        <form onSubmit={handleUpdateTim}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
+            <div>
+              <label className="mx-label">Tasa diaria (decimal)</label>
+              <input type="number" step="0.000001" className="mx-input"
+                placeholder="0.00040 (= 0.04%)"
+                value={newTim.rate}
+                onChange={e => setNewTim(p=>({...p,rate:e.target.value}))} />
+              <p style={{ fontSize:11, color:'#86868B', marginTop:4 }}>Ejemplo: 0.00040 para 0.04% diario</p>
+            </div>
+            <div>
+              <label className="mx-label">Vigente desde</label>
+              <input type="date" className="mx-input" value={newTim.validFrom}
+                onChange={e => setNewTim(p=>({...p,validFrom:e.target.value}))} />
+            </div>
+          </div>
+          <div style={{ display:'flex', justifyContent:'flex-end' }}>
+            <button type="submit" className="mx-btn mx-btn-primary">Actualizar TIM</button>
+          </div>
         </form>
       </div>
     </div>

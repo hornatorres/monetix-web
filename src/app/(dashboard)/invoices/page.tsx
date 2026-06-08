@@ -10,6 +10,7 @@ interface Invoice { id:string;invoiceNumber:string;documentType:string;clientNam
 const SB: Record<string,string> = { DRAFT:'mx-badge mx-badge-neutral',ISSUED:'mx-badge mx-badge-info',PARTIAL:'mx-badge mx-badge-warning',PAID:'mx-badge mx-badge-success',OVERDUE:'mx-badge mx-badge-danger',VOID:'mx-badge mx-badge-neutral',CANCELLED:'mx-badge mx-badge-neutral' };
 const SL: Record<string,string> = { DRAFT:'Borrador',ISSUED:'Emitida',PARTIAL:'Parcial',PAID:'Pagada',OVERDUE:'Vencida',VOID:'Anulada',CANCELLED:'Cancelada' };
 const SUNAT: Record<string,string> = { PENDING:'mx-badge mx-badge-warning',ACCEPTED:'mx-badge mx-badge-success',REJECTED:'mx-badge mx-badge-danger',SKIPPED:'mx-badge mx-badge-neutral' };
+const SUNAT_L: Record<string,string> = { PENDING:'Pendiente',ACCEPTED:'Aceptada',REJECTED:'Rechazada',SKIPPED:'No aplica' };
 
 export default function InvoicesPage() {
   const [all,setAll]=useState<Invoice[]>([]);
@@ -58,7 +59,7 @@ export default function InvoicesPage() {
                   <td style={{color:'#86868B'}}>{formatDate(i.dueDate)}</td>
                   <td style={{fontWeight:600}}>{formatCurrency(i.totalAmount,i.currency)}</td>
                   <td><span className={SB[i.status]??'mx-badge mx-badge-neutral'}>{SL[i.status]??i.status}</span></td>
-                  <td><span className={SUNAT[i.sunatStatus]??'mx-badge mx-badge-neutral'}>{i.sunatStatus}</span></td>
+                  <td><span className={SUNAT[i.sunatStatus]??'mx-badge mx-badge-neutral'}>{SUNAT_L[i.sunatStatus]??i.sunatStatus}</span></td>
                 </tr>
               ))}
             </tbody>

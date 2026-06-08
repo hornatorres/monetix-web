@@ -11,6 +11,7 @@ interface InvoiceItem { id:string;lineOrder:number;productName:string;productCod
 interface Invoice { id:string;invoiceNumber:string;documentType:string;clientName:string;clientRucDni:string;clientAddress:string;clientEmail:string;invoiceDate:string;dueDate:string;currency:string;subtotal:number;igvRate:number;igvAmount:number;totalAmount:number;amountPaid:number;status:string;sunatStatus:string;sunatResponseDesc:string|null;notes:string|null;journalEntryId:string|null;items:InvoiceItem[]; }
 const SB: Record<string,string> = { DRAFT:'mx-badge mx-badge-neutral',ISSUED:'mx-badge mx-badge-info',PARTIAL:'mx-badge mx-badge-warning',PAID:'mx-badge mx-badge-success',OVERDUE:'mx-badge mx-badge-danger',VOID:'mx-badge mx-badge-neutral' };
 const SL: Record<string,string> = { DRAFT:'Borrador',ISSUED:'Emitida',PARTIAL:'Parcial',PAID:'Pagada',OVERDUE:'Vencida',VOID:'Anulada' };
+const SUNAT_L: Record<string,string> = { PENDING:'Pendiente',ACCEPTED:'Aceptada',REJECTED:'Rechazada',SKIPPED:'No aplica' };
 
 export default function InvoiceDetailPage() {
   const { id }=useParams<{id:string}>();
@@ -53,7 +54,7 @@ export default function InvoiceDetailPage() {
           <div><label className="mx-label">Dirección</label><p style={{fontSize:13,color:'#86868B'}}>{invoice.clientAddress||'—'}</p></div>
           <div><label className="mx-label">Fecha emisión</label><p style={{fontSize:13}}>{formatDate(invoice.invoiceDate)}</p></div>
           <div><label className="mx-label">Vencimiento</label><p style={{fontSize:13}}>{formatDate(invoice.dueDate)}</p></div>
-          <div><label className="mx-label">Estado SUNAT</label><p style={{fontSize:13}}>{invoice.sunatStatus}</p>{invoice.sunatResponseDesc&&<p style={{fontSize:11,color:'#FF3B30',marginTop:2}}>{invoice.sunatResponseDesc.slice(0,120)}…</p>}</div>
+          <div><label className="mx-label">Estado SUNAT</label><p style={{fontSize:13}}>{SUNAT_L[invoice.sunatStatus]??invoice.sunatStatus}</p>{invoice.sunatResponseDesc&&<p style={{fontSize:11,color:'#FF3B30',marginTop:2}}>{invoice.sunatResponseDesc.slice(0,120)}…</p>}</div>
           <div><label className="mx-label">Asiento contable</label><p style={{fontSize:13}}>{invoice.journalEntryId?'✓ Generado':'—'}</p></div>
           {invoice.notes&&<div style={{gridColumn:'1/-1'}}><label className="mx-label">Notas</label><p style={{fontSize:13,color:'#86868B'}}>{invoice.notes}</p></div>}
         </div>

@@ -3,56 +3,40 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { authClient } from '@/lib/authClient';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, fmtAbbr } from '@/lib/utils';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis,
   ResponsiveContainer, Tooltip,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid,
 } from 'recharts';
 import {
   TrendingUp, ShoppingCart, CreditCard, Banknote,
-  AlertTriangle, Lightbulb, CheckCircle2,
+  AlertTriangle, Lightbulb, CheckCircle2, Users, Package,
 } from 'lucide-react';
 
 // ── Tipos ─────────────────────────────────────────────────────
 
-interface Kpi { value: number; prev: number; deltaPct: number | null; }
+interface Kpi { value:number; prev:number; deltaPct:number|null; }
+
 interface DashboardData {
-  period: string;
+  period:          string;
+  availableCash:   number;
   kpis: {
-    mrr: Kpi; arr: Kpi; totalCosts: Kpi; grossMargin: Kpi;
-    grossMarginPct: Kpi; ar: Kpi; ap: Kpi;
+    mrr:Kpi; arr:Kpi; totalCosts:Kpi; grossMargin:Kpi;
+    grossMarginPct:Kpi; ar:Kpi; arCount:Kpi; ap:Kpi; apCount:Kpi;
   };
-  history: {
-    period: string; salesIssued: number; salesPaid: number;
-    purchasesIssued: number; purchasesPaid: number; netIssued: number;
-  }[];
+  topClients: { clientId:string; clientName:string; totalIssued:number; totalPaid:number; unpaidCount:number; }[];
+  productMix: { productCode:string; productName:string; total:number; pct:number; }[];
+  history:    { period:string; salesIssued:number; purchasesIssued:number; netIssued:number; }[];
+  debtorClients:   { clientId:string; clientName:string; pendingAmount:number; invoiceCount:number; oldestDue:string; }[];
+  creditorSuppliers:{ supplierId:string; supplierName:string; pendingAmount:number; invoiceCount:number; oldestDue:string; }[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────
 
-function fmt(value: number): string {
-  if (value >= 1_000_000) return `S/${(value/1_000_000).toFixed(1)}M`;
-  if (value >= 1_000)     return `S/${Math.round(value/1_000)}K`;
-  return `S/${Math.round(value)}`;
-}
+function clamp(v:number, min=0, max=100) { return Math.min(max, Math.max(min, v)); }
 
-function clamp(v: number, min = 0, max = 100) {
-  return Math.min(max, Math.max(min, v));
-}
-
-// ── Score de salud empresarial ────────────────────────────────
-
-interface HealthData {
-  ventas:     number;
-  margen:     number;
-  cobros:     number;
-  pagos:      number;
-  liquidez:   number;
-  eficiencia: number;
-  overall:    number;
-}
-
-function computeHealth(kpis: DashboardData['kpis']): HealthData {
+function computeHealth(kpis: DashboardData['kpis'], availableCash: number) {
   const mrr       = Number(kpis.mrr.value);
   const costs     = Number(kpis.totalCosts.value);
   const marginPct = Number(kpis.grossMarginPct.value);
@@ -60,137 +44,86 @@ function computeHealth(kpis: DashboardData['kpis']): HealthData {
   const ap        = Number(kpis.ap.value);
 
   const ventas     = clamp(mrr > 0 ? Math.min((mrr / Math.max(mrr * 1.2, 1)) * 100, 100) : 0);
-  const margen     = clamp(marginPct * 100);
+  const margen     = clamp(marginPct);
   const cobros     = clamp(ar > 0 ? Math.max(0, 100 - (ar / Math.max(mrr, 1)) * 100) : 100);
   const pagos      = clamp(ap > 0 ? Math.max(0, 100 - (ap / Math.max(mrr + 1, 1)) * 50) : 100);
-  const liquidez   = clamp(costs > 0 ? Math.min((mrr / Math.max(costs, 1)) * 50, 100) : 80);
+  const liquidez   = clamp(availableCash > 0 ? Math.min((availableCash / Math.max(ap, mrr * 0.3, 1)) * 50, 100) : 30);
   const eficiencia = clamp((ventas + margen) / 2);
   const overall    = Math.round((ventas + margen + cobros + pagos + liquidez + eficiencia) / 6);
 
   return { ventas, margen, cobros, pagos, liquidez, eficiencia, overall };
 }
 
-function scoreLabel(score: number): { label: string; color: string } {
-  if (score >= 80) return { label: 'ÓPTIMO',    color: '#34C759' };
-  if (score >= 60) return { label: 'ESTABLE',   color: '#FF9F0A' };
-  if (score >= 40) return { label: 'ATENCIÓN',  color: '#FF9F0A' };
-  return               { label: 'CRÍTICO',   color: '#FF3B30' };
+function scoreLabel(score:number) {
+  if (score >= 80) return { label:'ÓPTIMO',   color:'#34C759' };
+  if (score >= 60) return { label:'ESTABLE',  color:'#FF9F0A' };
+  if (score >= 40) return { label:'ATENCIÓN', color:'#FF9F0A' };
+  return               { label:'CRÍTICO',  color:'#FF3B30' };
 }
 
-// ── Decisiones ejecutivas ─────────────────────────────────────
-
-interface Decision {
-  type:    'alert' | 'opportunity' | 'ok';
-  title:   string;
-  body:    string;
-  action:  string;
-  href:    string;
-  color:   string;
-  bgColor: string;
-  borderColor: string;
-}
-
-function computeDecisions(kpis: DashboardData['kpis']): Decision[] {
+function computeDecisions(kpis: DashboardData['kpis'], availableCash: number, debtors: DashboardData['debtorClients'], creditors: DashboardData['creditorSuppliers']) {
   const mrr    = Number(kpis.mrr.value);
-  const costs  = Number(kpis.totalCosts.value);
   const ar     = Number(kpis.ar.value);
   const ap     = Number(kpis.ap.value);
   const margin = Number(kpis.grossMarginPct.value);
-  const decisions: Decision[] = [];
+  const decisions: any[] = [];
 
-  // Deuda sin cobertura
-  if (ap > 0 && ap > mrr * 0.3) {
-    decisions.push({
-      type: 'alert', color: '#E65100', bgColor: '#FFFBF0',
-      borderColor: '#FF9F0A',
-      title: 'Deuda con proveedores sin cobertura de caja.',
-      body:  `Tienes ${formatCurrency(ap)} por pagar y liquidez insuficiente para cubrirlos. Esto puede deteriorar tus condiciones de crédito y afectar el suministro. Prioriza los pagos más críticos esta semana.`,
-      action: 'Ver compras pendientes →', href: '/purchases',
-    });
+  if (ap > 0 && ap > availableCash * 0.8) {
+    decisions.push({ type:'alert', color:'#E65100', bgColor:'#FFFBF0', borderColor:'#FF9F0A',
+      title:'Deuda con proveedores sin cobertura de caja.',
+      body:`Tienes ${formatCurrency(ap)} por pagar y solo ${formatCurrency(availableCash)} disponible. Prioriza los pagos más críticos esta semana.`,
+      action:'Ver compras pendientes →', href:'/purchases' });
   }
 
-  // Cuentas por cobrar altas
   if (ar > 0 && ar > mrr * 0.5) {
-    decisions.push({
-      type: 'alert', color: '#E65100', bgColor: '#FFFBF0',
-      borderColor: '#FF9F0A',
-      title: `${formatCurrency(ar)} en facturas sin cobrar.`,
-      body:  'El dinero que te deben tus clientes no está trabajando para tu empresa. Cada día de retraso en el cobro deteriora tu flujo de caja. Contacta a los deudores hoy.',
-      action: 'Ver cuentas por cobrar →', href: '/invoices',
-    });
+    decisions.push({ type:'alert', color:'#E65100', bgColor:'#FFFBF0', borderColor:'#FF9F0A',
+      title:`${formatCurrency(ar)} en facturas sin cobrar.`,
+      body:`${debtors.length} cliente(s) con deuda pendiente. Cada día de retraso deteriora tu flujo de caja.`,
+      action:'Ver cuentas por cobrar →', href:'/invoices' });
   }
 
-  // Oportunidad de escalar
-  if (margin > 0.5 && mrr > 0) {
-    decisions.push({
-      type: 'opportunity', color: '#27500A', bgColor: '#F0FDF4',
-      borderColor: '#34C759',
-      title: 'Momento de escalar.',
-      body:  'Tu empresa genera utilidad positiva. Este es el momento estratégico para invertir en crecimiento: ampliar cartera de clientes, mejorar capacidad o reforzar el equipo comercial.',
-      action: 'Ver analítica →', href: '/reports',
-    });
+  if (margin > 50 && mrr > 0) {
+    decisions.push({ type:'opportunity', color:'#27500A', bgColor:'#F0FDF4', borderColor:'#34C759',
+      title:'Momento de escalar.',
+      body:'Tu empresa genera utilidad positiva. Este es el momento estratégico para invertir en crecimiento.',
+      action:'Ver analítica →', href:'/reports' });
   }
 
-  // Sin gastos registrados
-  if (costs === 0 && mrr > 0) {
-    decisions.push({
-      type: 'alert', color: '#0D47A1', bgColor: '#EFF6FF',
-      borderColor: '#0071E3',
-      title: 'Sin gastos registrados este mes.',
-      body:  'No hay compras ni egresos registrados. Asegúrate de registrar todos los costos operativos para obtener un margen real.',
-      action: 'Registrar compras →', href: '/purchases',
-    });
-  }
-
-  // Todo en orden
   if (decisions.length === 0) {
-    decisions.push({
-      type: 'ok', color: '#27500A', bgColor: '#F0FDF4',
-      borderColor: '#34C759',
-      title: 'Operación saludable.',
-      body:  'Todos los indicadores están dentro de rangos normales. Mantén el ritmo de cobros y pagos para conservar el flujo de caja.',
-      action: 'Ver reportes →', href: '/reports',
-    });
+    decisions.push({ type:'ok', color:'#27500A', bgColor:'#F0FDF4', borderColor:'#34C759',
+      title:'Operación saludable.',
+      body:'Todos los indicadores están dentro de rangos normales.',
+      action:'Ver reportes →', href:'/reports' });
   }
-
   return decisions;
 }
 
-// ── Dimensiones del radar ─────────────────────────────────────
-
-const DIMENSION_CONFIG: { key: keyof Omit<HealthData,'overall'>; label: string; desc: string; getInterp: (v:number) => string }[] = [
-  { key:'ventas',     label:'Ventas',     desc:'Ingresos del período', getInterp: v => v>=80?'Consolida y sube precios':v>=50?'Crecimiento moderado':'Acelera la prospección' },
-  { key:'margen',     label:'Margen',     desc:'Rentabilidad bruta',   getInterp: v => v>=80?'Rentabilidad positiva y sostenible':v>=50?'Margen aceptable':'Revisa estructura de costos' },
-  { key:'cobros',     label:'Cobros',     desc:'Eficiencia de cobro',  getInterp: v => v>=80?'Cobros al día':v>=50?'Negocia descuentos por pronto pago':'Gestión de cobros urgente' },
-  { key:'pagos',      label:'Pagos',      desc:'Gestión de deuda',     getInterp: v => v>=80?'Pagos bajo control':v>=50?'Cubre los pagos críticos':'Riesgo de mora' },
-  { key:'liquidez',   label:'Liquidez',   desc:'Cobertura de caja',    getInterp: v => v>=80?'Liquidez sólida':v>=50?'Cobertura de obligaciones ajustada':'Liquidez crítica' },
-  { key:'eficiencia', label:'Eficiencia', desc:'Eficiencia operativa',  getInterp: v => v>=80?'Alta eficiencia operativa':v>=50?'Eficiencia mejorable':'Revisa procesos internos' },
+const DIMENSIONS = [
+  { key:'ventas',     label:'Ventas',     interp:(v:number) => v>=80?'Consolida y sube precios':v>=50?'Crecimiento moderado':'Acelera la prospección' },
+  { key:'margen',     label:'Margen',     interp:(v:number) => v>=80?'Rentabilidad positiva y sostenible':v>=50?'Margen aceptable':'Revisa estructura de costos' },
+  { key:'cobros',     label:'Cobros',     interp:(v:number) => v>=80?'Cobros al día':v>=50?'Negocia descuentos por pronto pago':'Gestión de cobros urgente' },
+  { key:'pagos',      label:'Pagos',      interp:(v:number) => v>=80?'Pagos bajo control':v>=50?'Cubre los pagos críticos':'Riesgo de mora' },
+  { key:'liquidez',   label:'Liquidez',   interp:(v:number) => v>=80?'Liquidez sólida':v>=50?'Cobertura ajustada':'Liquidez crítica' },
+  { key:'eficiencia', label:'Eficiencia', interp:(v:number) => v>=80?'Alta eficiencia operativa':v>=50?'Eficiencia mejorable':'Revisa procesos internos' },
 ];
 
-function dimColor(v: number): string {
-  if (v >= 80) return '#34C759';
-  if (v >= 50) return '#FF9F0A';
-  return '#FF3B30';
-}
+function dimColor(v:number) { return v>=80?'#34C759':v>=50?'#FF9F0A':'#FF3B30'; }
 
 // ── Score Ring ────────────────────────────────────────────────
 
-function ScoreRing({ score, color }: { score: number; color: string }) {
-  const r = 44;
-  const circ = 2 * Math.PI * r;
-  const pct  = circ - (score / 100) * circ;
+function ScoreRing({ score, color }: { score:number; color:string }) {
+  const r=44; const circ=2*Math.PI*r; const pct=circ-(score/100)*circ;
   return (
-    <div style={{ position:'relative', width:120, height:120, display:'flex', alignItems:'center', justifyContent:'center' }}>
-      <svg width="120" height="120" style={{ position:'absolute', top:0, left:0, transform:'rotate(-90deg)' }}>
-        <circle cx="60" cy="60" r={r} fill="none" stroke="#E5E5EA" strokeWidth="8" />
-        <circle cx="60" cy="60" r={r} fill="none" stroke={color} strokeWidth="8"
-          strokeDasharray={circ} strokeDashoffset={pct}
-          strokeLinecap="round"
-          style={{ transition:'stroke-dashoffset 1s ease' }} />
+    <div style={{ position:'relative', width:110, height:110, display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <svg width="110" height="110" style={{ position:'absolute', top:0, left:0, transform:'rotate(-90deg)' }}>
+        <circle cx="55" cy="55" r={r} fill="none" stroke="#F2F2F7" strokeWidth="8"/>
+        <circle cx="55" cy="55" r={r} fill="none" stroke={color} strokeWidth="8"
+          strokeDasharray={circ} strokeDashoffset={pct} strokeLinecap="round"
+          style={{ transition:'stroke-dashoffset 1s ease' }}/>
       </svg>
       <div style={{ textAlign:'center', position:'relative' }}>
-        <div style={{ fontSize:28, fontWeight:700, color, lineHeight:1, letterSpacing:'-1px' }}>{score}<span style={{fontSize:16}}>%</span></div>
-        <div style={{ fontSize:10, fontWeight:600, color, letterSpacing:'0.5px', marginTop:2 }}>{scoreLabel(score).label}</div>
+        <div style={{ fontSize:26, fontWeight:700, color, lineHeight:1, letterSpacing:'-1px' }}>{score}<span style={{fontSize:14}}>%</span></div>
+        <div style={{ fontSize:9, fontWeight:700, color, letterSpacing:'0.5px', marginTop:2 }}>{scoreLabel(score).label}</div>
       </div>
     </div>
   );
@@ -198,25 +131,43 @@ function ScoreRing({ score, color }: { score: number; color: string }) {
 
 // ── KPI Card ──────────────────────────────────────────────────
 
-function KpiCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) {
+function KpiCard({ icon, label, value, sub, color='#1D1D1F', onClick }:{
+  icon:React.ReactNode; label:string; value:string;
+  sub?:string; color?:string; onClick?:()=>void;
+}) {
   return (
-    <div style={{ background:'#fff', borderRadius:16, border:'0.5px solid rgba(0,0,0,0.06)', boxShadow:'0 1px 4px rgba(0,0,0,0.06)', padding:'18px 20px', display:'flex', flexDirection:'column', gap:8 }}>
+    <div onClick={onClick} style={{ background:'#fff', borderRadius:16, border:'0.5px solid rgba(0,0,0,0.06)', boxShadow:'0 1px 4px rgba(0,0,0,0.06)', padding:'16px 18px', display:'flex', flexDirection:'column', gap:8, cursor: onClick ? 'pointer' : 'default' }}>
       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-        <div style={{ width:32, height:32, borderRadius:10, background:`${color}15`, display:'flex', alignItems:'center', justifyContent:'center', color }}>
+        <div style={{ width:30, height:30, borderRadius:9, background:`${color}15`, display:'flex', alignItems:'center', justifyContent:'center', color }}>
           {icon}
         </div>
-        <span style={{ fontSize:11, fontWeight:500, color:'#86868B', textTransform:'uppercase', letterSpacing:'0.3px' }}>{label}</span>
+        <span style={{ fontSize:10, fontWeight:600, color:'#86868B', textTransform:'uppercase', letterSpacing:'0.4px' }}>{label}</span>
       </div>
-      <div style={{ fontSize:28, fontWeight:600, color:'#1D1D1F', letterSpacing:'-0.5px', lineHeight:1 }}>{fmt(value)}</div>
+      <div style={{ fontSize:24, fontWeight:700, color:'#1D1D1F', letterSpacing:'-0.5px', lineHeight:1 }}>{value}</div>
+      {sub && <div style={{ fontSize:11, color:'#86868B' }}>{sub}</div>}
     </div>
   );
 }
+
+// ── Tooltip ───────────────────────────────────────────────────
+
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background:'white', border:'0.5px solid #E5E5EA', borderRadius:10, padding:'8px 12px', fontSize:12, boxShadow:'0 4px 12px rgba(0,0,0,0.08)' }}>
+      <p style={{ color:'#86868B', marginBottom:4, fontWeight:500 }}>{label}</p>
+      {payload.map((p:any) => (
+        <p key={p.name} style={{ color:p.color }}>{p.name}: {formatCurrency(p.value)}</p>
+      ))}
+    </div>
+  );
+};
 
 // ── Página ────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const router  = useRouter();
-  const [data,    setData]    = useState<DashboardData | null>(null);
+  const [data,    setData]    = useState<DashboardData|null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
   const period = new Date().toISOString().slice(0, 7);
@@ -230,93 +181,113 @@ export default function DashboardPage() {
 
   if (loading) return (
     <div>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:28 }}>
-        <h1 style={{ fontSize:24, fontWeight:600, color:'#1D1D1F' }}>Dashboard</h1>
+      <div style={{ marginBottom:28 }}><h1 style={{ fontSize:24, fontWeight:700 }}>Dashboard</h1></div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12, marginBottom:16 }}>
+        {[1,2,3,4,5].map(i => <div key={i} className="mx-skeleton" style={{ height:96, borderRadius:16 }}/>)}
       </div>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, marginBottom:16 }}>
-        {[1,2,3,4].map(i => <div key={i} className="mx-skeleton" style={{ height:100, borderRadius:16 }} />)}
-      </div>
-      <div className="mx-skeleton" style={{ height:420, borderRadius:18 }} />
+      <div className="mx-skeleton" style={{ height:440, borderRadius:18 }}/>
     </div>
   );
 
-  if (!data) return (
-    <div style={{ padding:24, background:'#FFEBEE', borderRadius:14, color:'#B71C1C', fontSize:13 }}>
-      {error || 'Error cargando datos'}
-    </div>
-  );
+  if (!data) return <div className="mx-alert mx-alert-error">{error||'Error cargando datos'}</div>;
 
-  const { kpis } = data;
-  const health    = computeHealth(kpis);
-  const decisions = computeDecisions(kpis);
+  const { kpis, availableCash, topClients, productMix, history, debtorClients, creditorSuppliers } = data;
+  const health    = computeHealth(kpis, availableCash);
+  const decisions = computeDecisions(kpis, availableCash, debtorClients, creditorSuppliers);
   const { color: scoreColor } = scoreLabel(health.overall);
 
-  const radarData = DIMENSION_CONFIG.map(d => ({
+  const radarData = DIMENSIONS.map(d => ({
     subject: d.label,
-    value:   Math.round(health[d.key]),
+    value:   Math.round((health as any)[d.key]),
     fullMark: 100,
   }));
 
+  const chartData = history.filter(h => Number(h.salesIssued) > 0 || Number(h.purchasesIssued) > 0 || history.indexOf(h) >= history.length - 6).map(h => ({
+    name:     h.period.slice(5),
+    Ingresos: Number(h.salesIssued),
+    Gastos:   Number(h.purchasesIssued),
+  }));
+
+  const now = new Date().toLocaleDateString('es-PE', { month:'long', year:'numeric' });
+
   return (
     <div className="mx-fade-in">
-      {/* KPI Row */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, marginBottom:24 }}>
-        <KpiCard icon={<TrendingUp size={16}/>} label="Ventas del mes"  value={kpis.mrr.value}        color="#0071E3" />
-        <KpiCard icon={<ShoppingCart size={16}/>} label="Gastos del mes" value={kpis.totalCosts.value}  color="#FF3B30" />
-        <KpiCard icon={<CreditCard size={16}/>}  label="Por cobrar"     value={kpis.ar.value}           color="#FF9F0A" />
-        <KpiCard icon={<Banknote size={16}/>}    label="Por pagar"      value={kpis.ap.value}           color="#9B59B6" />
+      <div className="mx-page-header">
+        <div><h1 className="mx-page-title">Dashboard</h1><p className="mx-page-subtitle">Resumen ejecutivo · {now}</p></div>
+      </div>
+
+      {/* KPI Row — 5 indicadores */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12, marginBottom:16 }}>
+        <KpiCard icon={<TrendingUp size={15}/>} label="MRR" value={fmtAbbr(kpis.mrr.value)} color="#0071E3"/>
+        <KpiCard icon={<TrendingUp size={15}/>} label="ARR" value={fmtAbbr(kpis.arr.value)} color="#5856D6"/>
+        <KpiCard icon={<ShoppingCart size={15}/>} label="Gastos" value={fmtAbbr(kpis.totalCosts.value)} color="#FF3B30"/>
+        <KpiCard
+          icon={<CreditCard size={15}/>}
+          label="Por cobrar"
+          value={fmtAbbr(kpis.ar.value)}
+          sub={`${Number(kpis.arCount.value)} factura(s)`}
+          color="#FF9F0A"
+          onClick={() => router.push('/invoices')}
+        />
+        <KpiCard
+          icon={<Banknote size={15}/>}
+          label="Por pagar"
+          value={fmtAbbr(kpis.ap.value)}
+          sub={`${Number(kpis.apCount.value)} proveedor(es)`}
+          color="#9B59B6"
+          onClick={() => router.push('/purchases')}
+        />
+      </div>
+
+      {/* Caja disponible */}
+      <div style={{ background:'linear-gradient(135deg, #0071E3 0%, #5856D6 100%)', borderRadius:14, padding:'14px 20px', marginBottom:16, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div>
+          <p style={{ fontSize:11, fontWeight:600, color:'rgba(255,255,255,0.7)', textTransform:'uppercase', letterSpacing:'0.5px' }}>Caja disponible</p>
+          <p style={{ fontSize:28, fontWeight:700, color:'#fff', letterSpacing:'-0.5px' }}>{formatCurrency(availableCash)}</p>
+        </div>
+        <div style={{ textAlign:'right' }}>
+          <p style={{ fontSize:12, color:'rgba(255,255,255,0.7)' }}>Margen bruto</p>
+          <p style={{ fontSize:20, fontWeight:700, color:'#fff' }}>{Number(kpis.grossMarginPct.value).toFixed(1)}%</p>
+        </div>
       </div>
 
       {/* Centro de Mando */}
-      <div style={{ background:'#fff', borderRadius:18, border:'0.5px solid rgba(0,0,0,0.06)', boxShadow:'0 1px 4px rgba(0,0,0,0.06)', padding:28, marginBottom:24 }}>
-
-        {/* Header */}
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24 }}>
+      <div style={{ background:'#fff', borderRadius:18, border:'0.5px solid rgba(0,0,0,0.06)', boxShadow:'0 1px 4px rgba(0,0,0,0.06)', padding:24, marginBottom:16 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20 }}>
           <div>
             <div style={{ fontSize:10, fontWeight:600, color:'#86868B', letterSpacing:'0.8px', textTransform:'uppercase', marginBottom:4 }}>CENTRO DE MANDO</div>
             <div style={{ fontSize:15, fontWeight:500, color:'#1D1D1F' }}>Salud empresarial · Decisiones ejecutivas</div>
           </div>
-          <ScoreRing score={health.overall} color={scoreColor} />
+          <ScoreRing score={health.overall} color={scoreColor}/>
         </div>
 
-        {/* Radar + Decisiones */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1.4fr', gap:24, marginBottom:24 }}>
-
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1.4fr', gap:24, marginBottom:20 }}>
           {/* Radar */}
-          <div>
-            <ResponsiveContainer width="100%" height={260}>
-              <RadarChart data={radarData} margin={{ top:10, right:20, bottom:10, left:20 }}>
-                <PolarGrid stroke="#E5E5EA" radialLines={false} />
-                <PolarAngleAxis dataKey="subject" tick={{ fontSize:11, fontWeight:500, fill:'#1D1D1F' }} />
-                <Radar dataKey="value" stroke="#0071E3" strokeWidth={2}
-                  fill="#0071E3" fillOpacity={0.08}
-                  dot={{ fill:'#0071E3', strokeWidth:0, r:4 }} />
-                <Tooltip formatter={(v: any) => [`${v}%`, 'Score']}
-                  contentStyle={{ borderRadius:10, border:'0.5px solid #E5E5EA', fontSize:12 }} />
-              </RadarChart>
-            </ResponsiveContainer>
-          </div>
+          <ResponsiveContainer width="100%" height={240}>
+            <RadarChart data={radarData} margin={{ top:10, right:20, bottom:10, left:20 }}>
+              <PolarGrid stroke="#E5E5EA" radialLines={false}/>
+              <PolarAngleAxis dataKey="subject" tick={{ fontSize:11, fontWeight:500, fill:'#1D1D1F' }}/>
+              <Radar dataKey="value" stroke="#0071E3" strokeWidth={2} fill="#0071E3" fillOpacity={0.08} dot={{ fill:'#0071E3', strokeWidth:0, r:4 }}/>
+              <Tooltip formatter={(v:any) => [`${v}%`, 'Score']} contentStyle={{ borderRadius:10, border:'0.5px solid #E5E5EA', fontSize:12 }}/>
+            </RadarChart>
+          </ResponsiveContainer>
 
-          {/* Decisiones ejecutivas */}
+          {/* Decisiones */}
           <div>
-            <div style={{ fontSize:10, fontWeight:600, color:'#86868B', letterSpacing:'0.8px', textTransform:'uppercase', marginBottom:12 }}>DECISIONES EJECUTIVAS</div>
-            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            <div style={{ fontSize:10, fontWeight:600, color:'#86868B', letterSpacing:'0.8px', textTransform:'uppercase', marginBottom:10 }}>DECISIONES EJECUTIVAS</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
               {decisions.map((d, i) => (
-                <div key={i} style={{ background:d.bgColor, borderRadius:12, border:`1px solid ${d.borderColor}30`, borderLeft:`3px solid ${d.borderColor}`, padding:'12px 14px', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12 }}>
+                <div key={i} style={{ background:d.bgColor, borderRadius:10, borderLeft:`3px solid ${d.borderColor}`, padding:'10px 12px', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10 }}>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontSize:10, fontWeight:700, color:d.color, letterSpacing:'0.5px', textTransform:'uppercase', marginBottom:4, display:'flex', alignItems:'center', gap:4 }}>
-                      {d.type === 'alert'       && <AlertTriangle size={11} />}
-                      {d.type === 'opportunity' && <Lightbulb size={11} />}
-                      {d.type === 'ok'          && <CheckCircle2 size={11} />}
-                      {d.type === 'alert' ? 'ATENCIÓN' : d.type === 'opportunity' ? 'OPORTUNIDAD' : 'BIEN'}
+                    <div style={{ fontSize:10, fontWeight:700, color:d.color, textTransform:'uppercase', marginBottom:3, display:'flex', alignItems:'center', gap:4 }}>
+                      {d.type==='alert'?<AlertTriangle size={10}/>:d.type==='opportunity'?<Lightbulb size={10}/>:<CheckCircle2 size={10}/>}
+                      {d.type==='alert'?'ATENCIÓN':d.type==='opportunity'?'OPORTUNIDAD':'BIEN'}
                     </div>
-                    <div style={{ fontSize:13, fontWeight:600, color:'#1D1D1F', marginBottom:4 }}>{d.title}</div>
-                    <div style={{ fontSize:12, color:'#3A3A3C', lineHeight:1.5 }}>{d.body}</div>
+                    <div style={{ fontSize:12, fontWeight:600, color:'#1D1D1F', marginBottom:2 }}>{d.title}</div>
+                    <div style={{ fontSize:11, color:'#3A3A3C', lineHeight:1.4 }}>{d.body}</div>
                   </div>
-                  <button
-                    onClick={() => router.push(d.href)}
-                    style={{ flexShrink:0, background:d.borderColor, color:'#fff', border:'none', borderRadius:980, padding:'7px 14px', fontSize:11, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}
-                  >
+                  <button onClick={() => router.push(d.href)}
+                    style={{ flexShrink:0, background:d.borderColor, color:'#fff', border:'none', borderRadius:980, padding:'5px 10px', fontSize:10, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}>
                     {d.action}
                   </button>
                 </div>
@@ -326,30 +297,175 @@ export default function DashboardPage() {
         </div>
 
         {/* Barras de dimensiones */}
-        <div style={{ borderTop:'0.5px solid #F2F2F7', paddingTop:20 }}>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'12px 32px' }}>
-            {DIMENSION_CONFIG.map(d => {
-              const v     = Math.round(health[d.key]);
-              const color = dimColor(v);
+        <div style={{ borderTop:'0.5px solid #F2F2F7', paddingTop:16 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'10px 28px' }}>
+            {DIMENSIONS.map(d => {
+              const v=Math.round((health as any)[d.key]); const color=dimColor(v);
               return (
                 <div key={d.key}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                      <div style={{ width:7, height:7, borderRadius:'50%', background:color, flexShrink:0 }} />
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                      <div style={{ width:6, height:6, borderRadius:'50%', background:color }}/>
                       <span style={{ fontSize:12, fontWeight:500, color:'#1D1D1F' }}>{d.label}</span>
                     </div>
                     <span style={{ fontSize:12, fontWeight:600, color }}>{v}%</span>
                   </div>
-                  <div style={{ height:5, background:'#F2F2F7', borderRadius:99, overflow:'hidden', marginBottom:3 }}>
-                    <div style={{ height:'100%', width:`${v}%`, background:color, borderRadius:99, transition:'width 1s ease' }} />
+                  <div style={{ height:4, background:'#F2F2F7', borderRadius:99, overflow:'hidden', marginBottom:2 }}>
+                    <div style={{ height:'100%', width:`${v}%`, background:color, borderRadius:99, transition:'width 1s ease' }}/>
                   </div>
-                  <div style={{ fontSize:11, color:'#86868B' }}>{d.getInterp(v)}</div>
+                  <div style={{ fontSize:10, color:'#86868B' }}>{d.interp(v)}</div>
                 </div>
               );
             })}
           </div>
         </div>
       </div>
+
+      {/* Fila inferior: Gráfico + Top Clientes + Mix de productos */}
+      <div style={{ display:'grid', gridTemplateColumns:'1.5fr 1fr 1fr', gap:14, marginBottom:16 }}>
+
+        {/* Gráfico histórico */}
+        <div style={{ background:'#fff', borderRadius:16, border:'0.5px solid rgba(0,0,0,0.06)', boxShadow:'0 1px 4px rgba(0,0,0,0.06)', padding:20 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+            <div><p style={{ fontSize:13, fontWeight:600, color:'#1D1D1F' }}>Ingresos vs Gastos</p><p style={{ fontSize:11, color:'#86868B' }}>Últimos 12 meses</p></div>
+            <div style={{ display:'flex', gap:12, fontSize:11, color:'#86868B' }}>
+              <span style={{ display:'flex', alignItems:'center', gap:4 }}><span style={{ width:8, height:8, borderRadius:'50%', background:'#0071E3', display:'inline-block' }}/> Ingresos</span>
+              <span style={{ display:'flex', alignItems:'center', gap:4 }}><span style={{ width:8, height:8, borderRadius:'50%', background:'#FF3B30', display:'inline-block' }}/> Gastos</span>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={160}>
+            <AreaChart data={chartData} margin={{ top:4, right:4, left:0, bottom:0 }}>
+              <defs>
+                <linearGradient id="gI" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0071E3" stopOpacity={0.12}/><stop offset="100%" stopColor="#0071E3" stopOpacity={0}/></linearGradient>
+                <linearGradient id="gG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#FF3B30" stopOpacity={0.10}/><stop offset="100%" stopColor="#FF3B30" stopOpacity={0}/></linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" vertical={false}/>
+              <XAxis dataKey="name" tick={{ fontSize:10, fill:'#86868B' }} axisLine={false} tickLine={false}/>
+              <YAxis tick={{ fontSize:10, fill:'#86868B' }} axisLine={false} tickLine={false} tickFormatter={v => v>=1000?`${(v/1000).toFixed(0)}k`:String(v)}/>
+              <Tooltip content={<CustomTooltip/>}/>
+              <Area type="monotone" dataKey="Ingresos" stroke="#0071E3" strokeWidth={2} fill="url(#gI)" dot={false}/>
+              <Area type="monotone" dataKey="Gastos"   stroke="#FF3B30" strokeWidth={2} fill="url(#gG)"   dot={false}/>
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Top Clientes */}
+        <div style={{ background:'#fff', borderRadius:16, border:'0.5px solid rgba(0,0,0,0.06)', boxShadow:'0 1px 4px rgba(0,0,0,0.06)', padding:20 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:14 }}>
+            <Users size={14} color="#0071E3"/>
+            <p style={{ fontSize:13, fontWeight:600, color:'#1D1D1F' }}>Top clientes</p>
+          </div>
+          {topClients.length === 0 ? (
+            <p style={{ fontSize:12, color:'#86868B' }}>Sin datos</p>
+          ) : topClients.map((c, i) => {
+            const paidPct = c.totalIssued > 0 ? (c.totalPaid / c.totalIssued) * 100 : 0;
+            return (
+              <div key={c.clientId} style={{ marginBottom:i < topClients.length-1 ? 14 : 0 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                  <span style={{ fontSize:12, fontWeight:500, color:'#1D1D1F', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:130 }}>{c.clientName}</span>
+                  <span style={{ fontSize:12, fontWeight:700, color:'#0071E3' }}>{fmtAbbr(c.totalIssued)}</span>
+                </div>
+                <div style={{ height:4, background:'#F2F2F7', borderRadius:99, overflow:'hidden', marginBottom:3 }}>
+                  <div style={{ height:'100%', width:`${paidPct}%`, background:'#34C759', borderRadius:99 }}/>
+                </div>
+                <div style={{ display:'flex', justifyContent:'space-between' }}>
+                  <span style={{ fontSize:10, color:'#86868B' }}>Cobrado: {fmtAbbr(c.totalPaid)}</span>
+                  <span style={{ fontSize:10, color: c.unpaidCount > 0 ? '#FF9F0A' : '#86868B' }}>{c.unpaidCount} sin cobrar</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Mix de productos */}
+        <div style={{ background:'#fff', borderRadius:16, border:'0.5px solid rgba(0,0,0,0.06)', boxShadow:'0 1px 4px rgba(0,0,0,0.06)', padding:20 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:14 }}>
+            <Package size={14} color="#9B59B6"/>
+            <p style={{ fontSize:13, fontWeight:600, color:'#1D1D1F' }}>Mix de productos</p>
+          </div>
+          {productMix.length === 0 ? (
+            <p style={{ fontSize:12, color:'#86868B' }}>Sin datos</p>
+          ) : productMix.slice(0,4).map((p, i) => {
+            const colors = ['#0071E3','#9B59B6','#34C759','#FF9F0A'];
+            return (
+              <div key={i} style={{ marginBottom: i < Math.min(productMix.length,4)-1 ? 12 : 0 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                  <span style={{ fontSize:11, fontWeight:500, color:'#1D1D1F', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:130 }}>{p.productName}</span>
+                  <span style={{ fontSize:11, fontWeight:700, color:colors[i%colors.length] }}>{p.pct.toFixed(1)}%</span>
+                </div>
+                <div style={{ height:4, background:'#F2F2F7', borderRadius:99, overflow:'hidden' }}>
+                  <div style={{ height:'100%', width:`${p.pct}%`, background:colors[i%colors.length], borderRadius:99 }}/>
+                </div>
+                <span style={{ fontSize:10, color:'#86868B' }}>{fmtAbbr(p.total)}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Deudores + Acreedores */}
+      {(debtorClients.length > 0 || creditorSuppliers.length > 0) && (
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+
+          {/* Clientes deudores */}
+          {debtorClients.length > 0 && (
+            <div style={{ background:'#fff', borderRadius:16, border:'0.5px solid rgba(0,0,0,0.06)', boxShadow:'0 1px 4px rgba(0,0,0,0.06)', overflow:'hidden' }}>
+              <div style={{ padding:'12px 16px', borderBottom:'0.5px solid #F2F2F7', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <div style={{ width:6, height:6, borderRadius:'50%', background:'#FF9F0A' }}/>
+                  <span style={{ fontSize:12, fontWeight:600, color:'#1D1D1F' }}>Clientes con deuda</span>
+                </div>
+                <span style={{ fontSize:11, color:'#86868B' }}>{debtorClients.length} cliente(s)</span>
+              </div>
+              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                <thead><tr style={{ background:'#FAFAFA' }}>
+                  <th style={{ padding:'8px 16px', textAlign:'left', fontSize:10, fontWeight:600, color:'#86868B', textTransform:'uppercase', letterSpacing:'0.4px' }}>Cliente</th>
+                  <th style={{ padding:'8px 16px', textAlign:'right', fontSize:10, fontWeight:600, color:'#86868B', textTransform:'uppercase', letterSpacing:'0.4px' }}>Pendiente</th>
+                  <th style={{ padding:'8px 16px', textAlign:'right', fontSize:10, fontWeight:600, color:'#86868B', textTransform:'uppercase', letterSpacing:'0.4px' }}>Facturas</th>
+                </tr></thead>
+                <tbody>
+                  {debtorClients.map(d => (
+                    <tr key={d.clientId} style={{ borderTop:'0.5px solid #F2F2F7' }}>
+                      <td style={{ padding:'10px 16px', fontWeight:500 }}>{d.clientName}</td>
+                      <td style={{ padding:'10px 16px', textAlign:'right', fontWeight:700, color:'#FF9F0A' }}>{formatCurrency(d.pendingAmount)}</td>
+                      <td style={{ padding:'10px 16px', textAlign:'right', color:'#86868B' }}>{d.invoiceCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Proveedores acreedores */}
+          {creditorSuppliers.length > 0 && (
+            <div style={{ background:'#fff', borderRadius:16, border:'0.5px solid rgba(0,0,0,0.06)', boxShadow:'0 1px 4px rgba(0,0,0,0.06)', overflow:'hidden' }}>
+              <div style={{ padding:'12px 16px', borderBottom:'0.5px solid #F2F2F7', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <div style={{ width:6, height:6, borderRadius:'50%', background:'#FF3B30' }}/>
+                  <span style={{ fontSize:12, fontWeight:600, color:'#1D1D1F' }}>Proveedores por pagar</span>
+                </div>
+                <span style={{ fontSize:11, color:'#86868B' }}>{creditorSuppliers.length} proveedor(es)</span>
+              </div>
+              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                <thead><tr style={{ background:'#FAFAFA' }}>
+                  <th style={{ padding:'8px 16px', textAlign:'left', fontSize:10, fontWeight:600, color:'#86868B', textTransform:'uppercase', letterSpacing:'0.4px' }}>Proveedor</th>
+                  <th style={{ padding:'8px 16px', textAlign:'right', fontSize:10, fontWeight:600, color:'#86868B', textTransform:'uppercase', letterSpacing:'0.4px' }}>Pendiente</th>
+                  <th style={{ padding:'8px 16px', textAlign:'right', fontSize:10, fontWeight:600, color:'#86868B', textTransform:'uppercase', letterSpacing:'0.4px' }}>Facturas</th>
+                </tr></thead>
+                <tbody>
+                  {creditorSuppliers.map(s => (
+                    <tr key={s.supplierId} style={{ borderTop:'0.5px solid #F2F2F7' }}>
+                      <td style={{ padding:'10px 16px', fontWeight:500 }}>{s.supplierName}</td>
+                      <td style={{ padding:'10px 16px', textAlign:'right', fontWeight:700, color:'#FF3B30' }}>{formatCurrency(s.pendingAmount)}</td>
+                      <td style={{ padding:'10px 16px', textAlign:'right', color:'#86868B' }}>{s.invoiceCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

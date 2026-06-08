@@ -78,7 +78,7 @@ export default function InvoiceDetailPage() {
         <div style={{padding:'16px 20px',borderTop:'0.5px solid #E5E5EA',display:'flex',justifyContent:'flex-end'}}>
           <div style={{minWidth:220}}>
             <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}><span style={{color:'#86868B'}}>Subtotal</span><span>{formatCurrency(invoice.subtotal,invoice.currency)}</span></div>
-            <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}><span style={{color:'#86868B'}}>IGV ({Number(invoice.igvRate)}%)</span><span>{formatCurrency(invoice.igvAmount,invoice.currency)}</span></div>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}><span style={{color:'#86868B'}}>IGV ({(Number(invoice.igvRate) * 100).toFixed(0)}%)</span><span>{formatCurrency(invoice.igvAmount,invoice.currency)}</span></div>
             <div style={{display:'flex',justifyContent:'space-between',fontSize:15,fontWeight:700,borderTop:'0.5px solid #E5E5EA',paddingTop:8,marginTop:4}}><span>Total</span><span style={{color:'#0071E3'}}>{formatCurrency(invoice.totalAmount,invoice.currency)}</span></div>
             {Number(invoice.amountPaid)>0&&<>
               <div style={{display:'flex',justifyContent:'space-between',fontSize:13,color:'#34C759',marginTop:6}}><span>Pagado</span><span>{formatCurrency(invoice.amountPaid,invoice.currency)}</span></div>

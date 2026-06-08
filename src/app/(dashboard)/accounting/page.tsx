@@ -3,51 +3,85 @@
 import { useEffect, useState, useCallback } from 'react';
 import { authClient } from '@/lib/authClient';
 import { formatDate, formatCurrency, errMsg } from '@/lib/utils';
-import { AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { usePermissions } from '@/hooks/usePermissions';
+import {
+  List, BookOpen, BarChart2, Scale, TrendingUp, Lock,
+  ChevronDown, ChevronRight,
+} from 'lucide-react';
 
 // ── Tipos ─────────────────────────────────────────────────────
 
 interface Account {
-  id: string; code: string; name: string; type: string;
-  nature: string; parentCode: string | null; isActive: boolean; allowsEntries: boolean;
+  id:string; code:string; name:string; type:string;
+  nature:string; parentCode:string|null; isActive:boolean; allowsEntries:boolean;
 }
 
 interface JournalLine {
-  id: string; lineOrder: number; accountCode: string;
-  accountName: string; debit: number; credit: number; description: string | null;
+  id:string; lineOrder:number; accountCode:string;
+  accountName:string; debit:number; credit:number; description:string|null;
 }
 
 interface JournalEntry {
-  id: string; entryNumber: string; entryDate: string; description: string;
-  referenceType: string; status: string; currency: string;
-  totalDebit: number; totalCredit: number; lines: JournalLine[];
+  id:string; entryNumber:string; entryDate:string; description:string;
+  referenceType:string; status:string; currency:string;
+  totalDebit:number; totalCredit:number; lines:JournalLine[];
 }
 
 interface LedgerEntry {
-  id: string; entryNumber: string; entryDate: string; description: string;
-  debit: number; credit: number; balance: number;
+  id:string; entryNumber:string; entryDate:string;
+  description:string; debit:number; credit:number; balance:number;
 }
 
-const TYPE_BADGE: Record<string, string> = {
-  ASSET:     'mx-badge mx-badge-info',
-  LIABILITY: 'mx-badge mx-badge-danger',
-  EQUITY:    'mx-badge mx-badge-purple',
-  INCOME:    'mx-badge mx-badge-success',
-  EXPENSE:   'mx-badge mx-badge-warning',
+interface BalanceAccount { code:string; name:string; balance:number; }
+interface BalanceGroup  { group:string; accounts:BalanceAccount[]; total:number; }
+interface BalanceSheet  {
+  date:string;
+  assets:     { groups:BalanceGroup[]; total:number; };
+  liabilities:{ groups:BalanceGroup[]; total:number; };
+  equity:     { groups:BalanceGroup[]; total:number; };
+  totalLiabilitiesAndEquity:number;
+}
+
+interface ISLine  { category:string; accountCode:string; accountName:string; amount:number; }
+interface IncomeStatement {
+  from:string; to:string;
+  revenue:   { lines:ISLine[]; total:number; };
+  costs:     { lines:ISLine[]; total:number; };
+  expenses:  { lines:ISLine[]; total:number; };
+  grossProfit:number; operatingProfit:number; netIncome:number;
+}
+
+interface Period { year:number; month:number; closedAt:string; closedBy:string; }
+
+// ── Helpers ────────────────────────────────────────────────────
+
+const MONTH_NAMES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+const TYPE_COLOR: Record<string,string> = {
+  ASSET:     '#0071E3',
+  LIABILITY: '#FF9F0A',
+  EQUITY:    '#9B59B6',
+  INCOME:    '#34C759',
+  EXPENSE:   '#FF3B30',
 };
 
-const STATUS_BADGE: Record<string, string> = {
+const TYPE_LABEL: Record<string,string> = {
+  ASSET:'Activo', LIABILITY:'Pasivo', EQUITY:'Patrimonio',
+  INCOME:'Ingreso', EXPENSE:'Gasto',
+};
+
+const STATUS_BADGE: Record<string,string> = {
   DRAFT:  'mx-badge mx-badge-neutral',
   POSTED: 'mx-badge mx-badge-success',
   VOIDED: 'mx-badge mx-badge-danger',
 };
 
-// ── Tab: Plan de cuentas ──────────────────────────────────────
+// ── Tab 1: Plan de cuentas ─────────────────────────────────────
 
-function ChartOfAccountsTab({ onViewLedger }: { onViewLedger: (code: string) => void }) {
+function PlanTab({ onViewLedger }: { onViewLedger:(code:string)=>void }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [filtered, setFiltered] = useState<Account[]>([]);
-  const [search,   setSearch]   = useState('');
+  const [q,        setQ]        = useState('');
   const [type,     setType]     = useState('');
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');
@@ -60,56 +94,70 @@ function ChartOfAccountsTab({ onViewLedger }: { onViewLedger: (code: string) => 
   }, []);
 
   useEffect(() => {
-    const q = search.toLowerCase();
     setFiltered(accounts.filter(a => {
-      const matchSearch = !q || a.code.includes(q) || a.name.toLowerCase().includes(q);
-      const matchType   = !type || a.type === type;
-      return matchSearch && matchType;
+      const mq = !q || a.code.includes(q) || a.name.toLowerCase().includes(q.toLowerCase());
+      const mt = !type || a.type === type;
+      return mq && mt;
     }));
-  }, [search, type, accounts]);
+  }, [q, type, accounts]);
 
-  const getIndent = (code: string) => (code.split('.').length - 1) * 16;
-
-  if (loading) return <div className="p-4 space-y-2">{[1,2,3,4,5].map(i => <div key={i} className="mx-skeleton h-10 rounded-lg" />)}</div>;
+  const indent = (code: string) => (code.split('.').length - 1) * 14;
 
   return (
     <div>
-      <div className="flex gap-3 mb-4">
-        <input className="mx-input flex-1" placeholder="Buscar cuenta…" value={search} onChange={e => setSearch(e.target.value)} />
-        <select className="mx-select w-40" value={type} onChange={e => setType(e.target.value)}>
-          <option value="">Todos</option>
-          {['ASSET','LIABILITY','EQUITY','INCOME','EXPENSE'].map(t => <option key={t} value={t}>{t}</option>)}
+      <div style={{ display:'flex', gap:12, marginBottom:16 }}>
+        <div className="mx-searchbar" style={{ flex:1 }}>
+          <input placeholder="Buscar cuenta por código o nombre…" value={q} onChange={e => setQ(e.target.value)} />
+        </div>
+        <select className="mx-select" style={{ width:180 }} value={type} onChange={e => setType(e.target.value)}>
+          <option value="">Todos los tipos</option>
+          {Object.entries(TYPE_LABEL).map(([v,l]) => <option key={v} value={v}>{l}</option>)}
         </select>
       </div>
-      {error && <div className="p-3 rounded-xl bg-[#FCEBEB] text-sm text-[#791F1F] mb-3">{error}</div>}
-      <div className="mx-card overflow-hidden">
-        <table className="mx-table">
-          <thead><tr><th>Código</th><th>Nombre</th><th>Tipo</th><th>Naturaleza</th><th></th></tr></thead>
-          <tbody>
-            {filtered.map(a => (
-              <tr key={a.id}>
-                <td className="font-mono text-sm text-[#86868B]">{a.code}</td>
-                <td style={{ paddingLeft: getIndent(a.code) + 14 }} className="text-sm">{a.name}</td>
-                <td><span className={TYPE_BADGE[a.type] ?? 'mx-badge mx-badge-neutral'}>{a.type}</span></td>
-                <td className="text-xs text-[#86868B]">{a.nature}</td>
-                <td>
-                  {a.allowsEntries && (
-                    <button onClick={() => onViewLedger(a.code)} className="text-xs text-[#0071E3] hover:underline">
-                      Ver mayor →
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {error && <div className="mx-alert mx-alert-error" style={{ marginBottom:16 }}>{error}</div>}
+      <div className="mx-card-section">
+        {loading ? (
+          <div style={{ padding:16, display:'flex', flexDirection:'column', gap:8 }}>
+            {[1,2,3,4,5].map(i => <div key={i} className="mx-skeleton" style={{ height:36, borderRadius:8 }} />)}
+          </div>
+        ) : (
+          <table className="mx-table">
+            <thead><tr><th>Código</th><th>Nombre</th><th>Tipo</th><th>Naturaleza</th><th></th></tr></thead>
+            <tbody>
+              {filtered.map(a => (
+                <tr key={a.id}>
+                  <td style={{ fontFamily:'monospace', fontSize:12, color:'#3A3A3C' }}>{a.code}</td>
+                  <td style={{ paddingLeft: indent(a.code) + 16 }}>
+                    <span style={{ fontSize:13, color: a.allowsEntries ? '#1D1D1F' : '#86868B', fontWeight: a.code.split('.').length === 1 ? 600 : 400 }}>
+                      {a.name}
+                    </span>
+                  </td>
+                  <td>
+                    <span style={{ fontSize:11, fontWeight:500, color: TYPE_COLOR[a.type] ?? '#86868B' }}>
+                      {TYPE_LABEL[a.type] ?? a.type}
+                    </span>
+                  </td>
+                  <td style={{ fontSize:12, color:'#86868B' }}>{a.nature}</td>
+                  <td>
+                    {a.allowsEntries && (
+                      <button onClick={() => onViewLedger(a.code)}
+                        style={{ fontSize:12, color:'#0071E3', background:'none', border:'none', cursor:'pointer', padding:'2px 6px' }}>
+                        Ver mayor →
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
-      <p className="text-xs text-[#86868B] mt-2 px-1">{filtered.length} cuenta(s)</p>
+      {!loading && <p style={{ fontSize:11, color:'#86868B', marginTop:8, paddingLeft:4 }}>{filtered.length} cuenta(s)</p>}
     </div>
   );
 }
 
-// ── Tab: Libro Diario ─────────────────────────────────────────
+// ── Tab 2: Libro Diario ────────────────────────────────────────
 
 function JournalTab() {
   const [entries,  setEntries]  = useState<JournalEntry[]>([]);
@@ -119,10 +167,11 @@ function JournalTab() {
   const [status,   setStatus]   = useState('');
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');
+  const { canPostEntry } = usePermissions();
 
   const load = useCallback(() => {
     setLoading(true);
-    const params = new URLSearchParams({ limit: '50' });
+    const params = new URLSearchParams({ limit:'50' });
     if (from)   params.set('from',   from);
     if (to)     params.set('to',     to);
     if (status) params.set('status', status);
@@ -134,95 +183,95 @@ function JournalTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  const toggle = (id: string) => setExpanded(prev => {
+  const toggle = (id:string) => setExpanded(prev => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
     return next;
   });
 
-  const handlePost = async (id: string) => {
-    try {
-      await authClient.patch(`/accounting/journal-entries/${id}/post`);
-      load();
-    } catch (ex) { setError(errMsg(ex)); }
+  const handlePost = async (id:string) => {
+    try { await authClient.patch(`/accounting/journal-entries/${id}/post`); load(); }
+    catch (ex) { setError(errMsg(ex)); }
   };
 
   return (
     <div>
-      <div className="flex gap-3 mb-4">
-        <input type="date" className="mx-input w-40" value={from} onChange={e => setFrom(e.target.value)} placeholder="Desde" />
-        <input type="date" className="mx-input w-40" value={to}   onChange={e => setTo(e.target.value)}   placeholder="Hasta" />
-        <select className="mx-select w-40" value={status} onChange={e => setStatus(e.target.value)}>
-          <option value="">Todos</option>
+      <div style={{ display:'flex', gap:12, marginBottom:16 }}>
+        <input type="date" className="mx-input" style={{ width:160 }} value={from} onChange={e => setFrom(e.target.value)} placeholder="Desde" />
+        <input type="date" className="mx-input" style={{ width:160 }} value={to}   onChange={e => setTo(e.target.value)}   placeholder="Hasta" />
+        <select className="mx-select" style={{ width:180 }} value={status} onChange={e => setStatus(e.target.value)}>
+          <option value="">Todos los estados</option>
           <option value="DRAFT">Borrador</option>
           <option value="POSTED">Contabilizado</option>
           <option value="VOIDED">Anulado</option>
         </select>
-        <button onClick={load} className="mx-btn-primary">Buscar</button>
+        <button onClick={load} className="mx-btn mx-btn-primary">Buscar</button>
       </div>
-      {error && <div className="p-3 rounded-xl bg-[#FCEBEB] text-sm text-[#791F1F] mb-3">{error}</div>}
-      {loading ? (
-        <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="mx-skeleton h-12 rounded-lg" />)}</div>
-      ) : entries.length === 0 ? (
-        <div className="mx-card p-8 text-center text-sm text-[#86868B]">Sin asientos en el período</div>
-      ) : (
-        <div className="mx-card overflow-hidden">
+      {error && <div className="mx-alert mx-alert-error" style={{ marginBottom:16 }}>{error}</div>}
+      <div className="mx-card-section">
+        {loading ? (
+          <div style={{ padding:16, display:'flex', flexDirection:'column', gap:8 }}>
+            {[1,2,3].map(i => <div key={i} className="mx-skeleton" style={{ height:44, borderRadius:8 }} />)}
+          </div>
+        ) : entries.length === 0 ? (
+          <div className="mx-empty">Sin asientos en el período seleccionado</div>
+        ) : (
           <table className="mx-table">
-            <thead><tr><th></th><th>N° Asiento</th><th>Fecha</th><th>Descripción</th><th>Debe</th><th>Haber</th><th>Estado</th><th></th></tr></thead>
+            <thead><tr><th style={{ width:24 }}></th><th>N° Asiento</th><th>Fecha</th><th>Descripción</th><th>Debe</th><th>Haber</th><th>Estado</th><th></th></tr></thead>
             <tbody>
               {entries.map(e => (
                 <>
-                  <tr key={e.id} className="cursor-pointer" onClick={() => toggle(e.id)}>
-                    <td className="w-8">
-                      {expanded.has(e.id) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  <tr key={e.id} onClick={() => toggle(e.id)} style={{ cursor:'pointer' }}>
+                    <td style={{ color:'#86868B' }}>
+                      {expanded.has(e.id) ? <ChevronDown size={13}/> : <ChevronRight size={13}/>}
                     </td>
-                    <td className="font-mono text-xs">{e.entryNumber}</td>
-                    <td className="text-[#86868B]">{formatDate(e.entryDate)}</td>
-                    <td className="text-sm max-w-xs truncate">{e.description}</td>
-                    <td className="font-medium">{formatCurrency(e.totalDebit)}</td>
-                    <td className="font-medium">{formatCurrency(e.totalCredit)}</td>
+                    <td style={{ fontFamily:'monospace', fontSize:12 }}>{e.entryNumber}</td>
+                    <td style={{ color:'#86868B' }}>{formatDate(e.entryDate)}</td>
+                    <td style={{ maxWidth:280, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{e.description}</td>
+                    <td style={{ fontWeight:600 }}>{formatCurrency(e.totalDebit)}</td>
+                    <td style={{ fontWeight:600 }}>{formatCurrency(e.totalCredit)}</td>
                     <td><span className={STATUS_BADGE[e.status] ?? 'mx-badge mx-badge-neutral'}>{e.status}</span></td>
                     <td>
-                      {e.status === 'DRAFT' && (
+                      {e.status === 'DRAFT' && canPostEntry && (
                         <button onClick={ev => { ev.stopPropagation(); handlePost(e.id); }}
-                          className="text-xs text-[#0071E3] hover:underline">
+                          style={{ fontSize:12, color:'#0071E3', background:'none', border:'none', cursor:'pointer' }}>
                           Postear
                         </button>
                       )}
                     </td>
                   </tr>
                   {expanded.has(e.id) && e.lines?.map(l => (
-                    <tr key={l.id} className="bg-[#F9F9FB]">
-                      <td></td>
-                      <td></td>
-                      <td></td>
-                      <td className="pl-6 text-xs text-[#86868B]">{l.accountCode} — {l.accountName}</td>
-                      <td className="text-xs">{l.debit > 0 ? formatCurrency(l.debit) : '—'}</td>
-                      <td className="text-xs">{l.credit > 0 ? formatCurrency(l.credit) : '—'}</td>
-                      <td></td>
-                      <td></td>
+                    <tr key={l.id} style={{ background:'#FAFAFA' }}>
+                      <td></td><td></td><td></td>
+                      <td style={{ paddingLeft:28, fontSize:12, color:'#3A3A3C' }}>
+                        <span style={{ fontFamily:'monospace', color:'#0071E3', marginRight:8 }}>{l.accountCode}</span>
+                        {l.accountName}
+                        {l.description && <span style={{ color:'#86868B', marginLeft:8 }}>· {l.description}</span>}
+                      </td>
+                      <td style={{ fontSize:12 }}>{l.debit > 0 ? formatCurrency(l.debit) : '—'}</td>
+                      <td style={{ fontSize:12 }}>{l.credit > 0 ? formatCurrency(l.credit) : '—'}</td>
+                      <td></td><td></td>
                     </tr>
                   ))}
                 </>
               ))}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
 
-// ── Tab: Mayor ────────────────────────────────────────────────
+// ── Tab 3: Mayor ───────────────────────────────────────────────
 
-function LedgerTab({ preselectedCode }: { preselectedCode?: string }) {
+function LedgerTab({ preselectedCode }: { preselectedCode?:string }) {
   const [code,    setCode]    = useState(preselectedCode ?? '');
   const [from,    setFrom]    = useState('');
   const [to,      setTo]      = useState('');
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState('');
-  const [totals,  setTotals]  = useState({ debit: 0, credit: 0, balance: 0 });
 
   const load = useCallback(() => {
     if (!code.trim()) return;
@@ -231,106 +280,437 @@ function LedgerTab({ preselectedCode }: { preselectedCode?: string }) {
     if (from) params.set('from', from);
     if (to)   params.set('to',   to);
     authClient.get(`/accounting/ledger/${code}?${params}`)
-      .then(r => {
-        const data = Array.isArray(r.data) ? r.data : r.data?.entries ?? [];
-        setEntries(data);
-        setTotals({
-          debit:   data.reduce((s: number, e: LedgerEntry) => s + Number(e.debit),  0),
-          credit:  data.reduce((s: number, e: LedgerEntry) => s + Number(e.credit), 0),
-          balance: data.length > 0 ? Number(data[data.length - 1].balance) : 0,
-        });
-      })
+      .then(r => setEntries(Array.isArray(r.data) ? r.data : r.data?.entries ?? []))
       .catch(ex => setError(errMsg(ex)))
       .finally(() => setLoading(false));
   }, [code, from, to]);
 
   useEffect(() => { if (preselectedCode) load(); }, [preselectedCode]);
 
+  const totalDebit  = entries.reduce((s, e) => s + Number(e.debit),  0);
+  const totalCredit = entries.reduce((s, e) => s + Number(e.credit), 0);
+  const lastBalance = entries.length > 0 ? Number(entries[entries.length-1].balance) : 0;
+
   return (
     <div>
-      <div className="flex gap-3 mb-4">
-        <input className="mx-input w-32" placeholder="Cuenta (ej: 12.1)" value={code} onChange={e => setCode(e.target.value)} />
-        <input type="date" className="mx-input w-40" value={from} onChange={e => setFrom(e.target.value)} />
-        <input type="date" className="mx-input w-40" value={to}   onChange={e => setTo(e.target.value)} />
-        <button onClick={load} className="mx-btn-primary">Ver mayor</button>
+      <div style={{ display:'flex', gap:12, marginBottom:16 }}>
+        <input className="mx-input" style={{ width:140 }} placeholder="Cuenta (ej: 12.1)" value={code} onChange={e => setCode(e.target.value)} />
+        <input type="date" className="mx-input" style={{ width:160 }} value={from} onChange={e => setFrom(e.target.value)} />
+        <input type="date" className="mx-input" style={{ width:160 }} value={to}   onChange={e => setTo(e.target.value)} />
+        <button onClick={load} className="mx-btn mx-btn-primary">Ver mayor</button>
       </div>
-      {error && <div className="p-3 rounded-xl bg-[#FCEBEB] text-sm text-[#791F1F] mb-3">{error}</div>}
-      {loading ? (
-        <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="mx-skeleton h-10 rounded-lg" />)}</div>
-      ) : entries.length === 0 ? (
-        <div className="mx-card p-8 text-center text-sm text-[#86868B]">
-          {code ? 'Sin movimientos para esta cuenta' : 'Ingresa un código de cuenta'}
-        </div>
-      ) : (
-        <div className="mx-card overflow-hidden">
-          <table className="mx-table">
-            <thead><tr><th>N° Asiento</th><th>Fecha</th><th>Descripción</th><th>Debe</th><th>Haber</th><th>Saldo</th></tr></thead>
-            <tbody>
-              {entries.map(e => (
-                <tr key={e.id}>
-                  <td className="font-mono text-xs">{e.entryNumber}</td>
-                  <td className="text-[#86868B]">{formatDate(e.entryDate)}</td>
-                  <td className="text-sm">{e.description}</td>
-                  <td>{e.debit > 0 ? formatCurrency(e.debit) : '—'}</td>
-                  <td>{e.credit > 0 ? formatCurrency(e.credit) : '—'}</td>
-                  <td className="font-medium">{formatCurrency(e.balance)}</td>
+      {error && <div className="mx-alert mx-alert-error" style={{ marginBottom:16 }}>{error}</div>}
+      <div className="mx-card-section">
+        {loading ? (
+          <div style={{ padding:16, display:'flex', flexDirection:'column', gap:8 }}>
+            {[1,2,3].map(i => <div key={i} className="mx-skeleton" style={{ height:36, borderRadius:8 }} />)}
+          </div>
+        ) : entries.length === 0 ? (
+          <div className="mx-empty">{code ? 'Sin movimientos para esta cuenta' : 'Ingresa un código de cuenta'}</div>
+        ) : (
+          <>
+            <table className="mx-table">
+              <thead><tr><th>N° Asiento</th><th>Fecha</th><th>Descripción</th><th>Debe</th><th>Haber</th><th>Saldo</th></tr></thead>
+              <tbody>
+                {entries.map(e => (
+                  <tr key={e.id}>
+                    <td style={{ fontFamily:'monospace', fontSize:12 }}>{e.entryNumber}</td>
+                    <td style={{ color:'#86868B' }}>{formatDate(e.entryDate)}</td>
+                    <td>{e.description}</td>
+                    <td>{e.debit  > 0 ? formatCurrency(e.debit)  : '—'}</td>
+                    <td>{e.credit > 0 ? formatCurrency(e.credit) : '—'}</td>
+                    <td style={{ fontWeight:600 }}>{formatCurrency(e.balance)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ background:'#F9F9FB', fontWeight:600, borderTop:'1px solid #E5E5EA' }}>
+                  <td colSpan={3} style={{ padding:'12px 16px' }}>Totales</td>
+                  <td style={{ padding:'12px 16px' }}>{formatCurrency(totalDebit)}</td>
+                  <td style={{ padding:'12px 16px' }}>{formatCurrency(totalCredit)}</td>
+                  <td style={{ padding:'12px 16px', color:'#0071E3' }}>{formatCurrency(lastBalance)}</td>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-[#E5E5EA] bg-[#F9F9FB] font-semibold">
-                <td colSpan={3} className="px-4 py-3 text-sm">Totales</td>
-                <td className="px-4 py-3">{formatCurrency(totals.debit)}</td>
-                <td className="px-4 py-3">{formatCurrency(totals.credit)}</td>
-                <td className="px-4 py-3">{formatCurrency(totals.balance)}</td>
-              </tr>
-            </tfoot>
-          </table>
+              </tfoot>
+            </table>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Tab 4: Balance General ─────────────────────────────────────
+
+function BalanceTab() {
+  const [date,    setDate]    = useState(new Date().toISOString().split('T')[0]);
+  const [balance, setBalance] = useState<BalanceSheet|null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState('');
+
+  const load = async () => {
+    setLoading(true); setError('');
+    try {
+      const r = await authClient.get(`/accounting/balance-sheet?date=${date}`);
+      setBalance(r.data);
+    } catch (ex) { setError(errMsg(ex)); }
+    finally { setLoading(false); }
+  };
+
+  const diff = balance ? balance.assets.total - balance.totalLiabilitiesAndEquity : 0;
+  const balanced = Math.abs(diff) < 0.01;
+
+  return (
+    <div>
+      <div style={{ display:'flex', gap:12, marginBottom:20, alignItems:'flex-end' }}>
+        <div>
+          <label className="mx-label">Al cierre de</label>
+          <input type="date" className="mx-input" style={{ width:180 }} value={date} onChange={e => setDate(e.target.value)} />
         </div>
+        <button onClick={load} disabled={loading} className="mx-btn mx-btn-primary" style={{ background:'#1D1D1F' }}>
+          {loading ? 'Generando…' : 'Generar Balance'}
+        </button>
+      </div>
+
+      {error && <div className="mx-alert mx-alert-error" style={{ marginBottom:16 }}>{error}</div>}
+
+      {balance && (
+        <>
+          {/* Resumen */}
+          <div style={{ background: balanced ? '#F0FDF4' : '#FFF8E1', border:`1px solid ${balanced?'#C8E6C9':'#FFE082'}`, borderRadius:12, padding:'14px 20px', marginBottom:20, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <div style={{ display:'flex', gap:32 }}>
+              <div>
+                <p style={{ fontSize:11, color:'#86868B', textTransform:'uppercase', letterSpacing:'0.4px' }}>Total Activos</p>
+                <p style={{ fontSize:18, fontWeight:700, color:'#0071E3' }}>{formatCurrency(balance.assets.total)}</p>
+              </div>
+              <div>
+                <p style={{ fontSize:11, color:'#86868B', textTransform:'uppercase', letterSpacing:'0.4px' }}>Pasivos + Patrimonio</p>
+                <p style={{ fontSize:18, fontWeight:700, color:'#9B59B6' }}>{formatCurrency(balance.totalLiabilitiesAndEquity)}</p>
+              </div>
+            </div>
+            <div style={{ textAlign:'right' }}>
+              {balanced ? (
+                <span style={{ fontSize:13, fontWeight:600, color:'#1B5E20' }}>✓ Balance cuadrado</span>
+              ) : (
+                <span style={{ fontSize:13, fontWeight:600, color:'#E65100' }}>⚠ Diferencia: {formatCurrency(Math.abs(diff))}</span>
+              )}
+            </div>
+          </div>
+
+          {/* Columnas */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20 }}>
+            {/* Activos */}
+            <div className="mx-card-section">
+              <div style={{ padding:'14px 20px', borderBottom:'0.5px solid #E5E5EA', display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ fontSize:15, fontWeight:700, color:'#0071E3' }}>Activos</span>
+              </div>
+              {balance.assets.groups.map(g => (
+                <div key={g.group}>
+                  <div style={{ padding:'10px 20px 4px', background:'#F9F9FB', display:'flex', justifyContent:'space-between', borderBottom:'0.5px solid #F2F2F7' }}>
+                    <span style={{ fontSize:11, fontWeight:700, color:'#0071E3', textTransform:'uppercase', letterSpacing:'0.5px', borderLeft:'3px solid #0071E3', paddingLeft:8 }}>{g.group}</span>
+                    <span style={{ fontSize:12, fontWeight:700, color:'#0071E3' }}>{formatCurrency(g.total)}</span>
+                  </div>
+                  {g.accounts.map(a => (
+                    <div key={a.code} style={{ padding:'8px 20px', display:'flex', justifyContent:'space-between', borderBottom:'0.5px solid #F2F2F7' }}>
+                      <div style={{ display:'flex', gap:10 }}>
+                        <span style={{ fontFamily:'monospace', fontSize:12, color:'#0071E3' }}>{a.code}</span>
+                        <span style={{ fontSize:13, color:'#3A3A3C' }}>{a.name}</span>
+                      </div>
+                      <span style={{ fontSize:13 }}>{formatCurrency(a.balance)}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <div style={{ padding:'12px 20px', borderTop:'1px solid #E5E5EA', display:'flex', justifyContent:'space-between', background:'#F0F7FF' }}>
+                <span style={{ fontSize:13, fontWeight:700 }}>TOTAL ACTIVOS</span>
+                <span style={{ fontSize:14, fontWeight:700, color:'#0071E3' }}>{formatCurrency(balance.assets.total)}</span>
+              </div>
+            </div>
+
+            {/* Pasivos + Patrimonio */}
+            <div>
+              {/* Pasivos */}
+              <div className="mx-card-section" style={{ marginBottom:16 }}>
+                <div style={{ padding:'14px 20px', borderBottom:'0.5px solid #E5E5EA' }}>
+                  <span style={{ fontSize:15, fontWeight:700, color:'#FF9F0A' }}>Pasivos y Patrimonio</span>
+                </div>
+                {balance.liabilities.groups.map(g => (
+                  <div key={g.group}>
+                    <div style={{ padding:'10px 20px 4px', background:'#FFFBF0', display:'flex', justifyContent:'space-between', borderBottom:'0.5px solid #F2F2F7' }}>
+                      <span style={{ fontSize:11, fontWeight:700, color:'#FF9F0A', textTransform:'uppercase', letterSpacing:'0.5px', borderLeft:'3px solid #FF9F0A', paddingLeft:8 }}>{g.group}</span>
+                      <span style={{ fontSize:12, fontWeight:700, color:'#FF9F0A' }}>{formatCurrency(g.total)}</span>
+                    </div>
+                    {g.accounts.map(a => (
+                      <div key={a.code} style={{ padding:'8px 20px', display:'flex', justifyContent:'space-between', borderBottom:'0.5px solid #F2F2F7' }}>
+                        <div style={{ display:'flex', gap:10 }}>
+                          <span style={{ fontFamily:'monospace', fontSize:12, color:'#FF9F0A' }}>{a.code}</span>
+                          <span style={{ fontSize:13, color:'#3A3A3C' }}>{a.name}</span>
+                        </div>
+                        <span style={{ fontSize:13 }}>{formatCurrency(a.balance)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                <div style={{ padding:'12px 20px', borderTop:'1px solid #E5E5EA', display:'flex', justifyContent:'space-between', background:'#FFFBF0' }}>
+                  <span style={{ fontSize:13, fontWeight:700 }}>TOTAL PASIVOS</span>
+                  <span style={{ fontSize:14, fontWeight:700, color:'#FF9F0A' }}>{formatCurrency(balance.liabilities.total)}</span>
+                </div>
+              </div>
+
+              {/* Patrimonio */}
+              <div className="mx-card-section">
+                {balance.equity.groups.map(g => (
+                  <div key={g.group}>
+                    <div style={{ padding:'10px 20px 4px', background:'#F5F0FF', display:'flex', justifyContent:'space-between', borderBottom:'0.5px solid #F2F2F7' }}>
+                      <span style={{ fontSize:11, fontWeight:700, color:'#9B59B6', textTransform:'uppercase', letterSpacing:'0.5px', borderLeft:'3px solid #9B59B6', paddingLeft:8 }}>{g.group}</span>
+                      <span style={{ fontSize:12, fontWeight:700, color:'#9B59B6' }}>{formatCurrency(g.total)}</span>
+                    </div>
+                    {g.accounts.map(a => (
+                      <div key={a.code} style={{ padding:'8px 20px', display:'flex', justifyContent:'space-between', borderBottom:'0.5px solid #F2F2F7' }}>
+                        <div style={{ display:'flex', gap:10 }}>
+                          <span style={{ fontFamily:'monospace', fontSize:12, color:'#9B59B6' }}>{a.code}</span>
+                          <span style={{ fontSize:13, color:'#3A3A3C' }}>{a.name}</span>
+                        </div>
+                        <span style={{ fontSize:13 }}>{formatCurrency(a.balance)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                <div style={{ padding:'12px 20px', borderTop:'1px solid #E5E5EA', display:'flex', justifyContent:'space-between', background:'#F5F0FF' }}>
+                  <span style={{ fontSize:13, fontWeight:700 }}>TOTAL PATRIMONIO</span>
+                  <span style={{ fontSize:14, fontWeight:700, color:'#9B59B6' }}>{formatCurrency(balance.equity.total)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {!balance && !loading && !error && (
+        <div className="mx-empty">Selecciona una fecha y haz clic en "Generar Balance"</div>
       )}
     </div>
   );
 }
 
-// ── Página principal ──────────────────────────────────────────
+// ── Tab 5: P&L ─────────────────────────────────────────────────
 
-const TABS = ['Plan de cuentas', 'Libro Diario', 'Mayor'];
+function PLTab() {
+  const now = new Date();
+  const [from,   setFrom]   = useState(`${now.getFullYear()}-01-01`);
+  const [to,     setTo]     = useState(now.toISOString().split('T')[0]);
+  const [report, setReport] = useState<IncomeStatement|null>(null);
+  const [loading,setLoading]= useState(false);
+  const [error,  setError]  = useState('');
+
+  const load = async () => {
+    setLoading(true); setError('');
+    try {
+      const r = await authClient.get(`/accounting/income-statement?from=${from}&to=${to}`);
+      setReport(r.data);
+    } catch (ex) { setError(errMsg(ex)); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div>
+      <div style={{ display:'flex', gap:12, marginBottom:20, alignItems:'flex-end' }}>
+        <div>
+          <label className="mx-label">Desde</label>
+          <input type="date" className="mx-input" style={{ width:160 }} value={from} onChange={e => setFrom(e.target.value)} />
+        </div>
+        <div>
+          <label className="mx-label">Hasta</label>
+          <input type="date" className="mx-input" style={{ width:160 }} value={to} onChange={e => setTo(e.target.value)} />
+        </div>
+        <button onClick={load} disabled={loading} className="mx-btn mx-btn-primary" style={{ background:'#1D1D1F' }}>
+          {loading ? 'Generando…' : 'Generar P&L'}
+        </button>
+      </div>
+
+      {error && <div className="mx-alert mx-alert-error" style={{ marginBottom:16 }}>{error}</div>}
+
+      {report && (
+        <div style={{ maxWidth:640 }}>
+          {/* Ingresos */}
+          <div className="mx-card-section" style={{ marginBottom:12 }}>
+            <div style={{ padding:'12px 20px', background:'#F0FDF4', borderBottom:'0.5px solid #C8E6C9', display:'flex', justifyContent:'space-between' }}>
+              <span style={{ fontSize:13, fontWeight:700, color:'#1B5E20' }}>INGRESOS</span>
+              <span style={{ fontSize:13, fontWeight:700, color:'#34C759' }}>{formatCurrency(report.revenue.total)}</span>
+            </div>
+            {report.revenue.lines.map((l, i) => (
+              <div key={i} style={{ padding:'9px 20px', display:'flex', justifyContent:'space-between', borderBottom:'0.5px solid #F2F2F7' }}>
+                <div style={{ display:'flex', gap:10 }}>
+                  <span style={{ fontFamily:'monospace', fontSize:12, color:'#86868B' }}>{l.accountCode}</span>
+                  <span style={{ fontSize:13, color:'#3A3A3C' }}>{l.accountName}</span>
+                </div>
+                <span style={{ fontSize:13, fontWeight:500, color:'#34C759' }}>{formatCurrency(l.amount)}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Utilidad bruta */}
+          <div style={{ padding:'12px 20px', background:'#E8F5E9', borderRadius:10, marginBottom:12, display:'flex', justifyContent:'space-between' }}>
+            <span style={{ fontSize:13, fontWeight:600 }}>Utilidad bruta</span>
+            <span style={{ fontSize:14, fontWeight:700, color:report.grossProfit >= 0 ? '#34C759' : '#FF3B30' }}>{formatCurrency(report.grossProfit)}</span>
+          </div>
+
+          {/* Gastos */}
+          <div className="mx-card-section" style={{ marginBottom:12 }}>
+            <div style={{ padding:'12px 20px', background:'#FFF8E1', borderBottom:'0.5px solid #FFE082', display:'flex', justifyContent:'space-between' }}>
+              <span style={{ fontSize:13, fontWeight:700, color:'#E65100' }}>GASTOS OPERATIVOS</span>
+              <span style={{ fontSize:13, fontWeight:700, color:'#FF9F0A' }}>{formatCurrency(report.expenses.total)}</span>
+            </div>
+            {report.expenses.lines.map((l, i) => (
+              <div key={i} style={{ padding:'9px 20px', display:'flex', justifyContent:'space-between', borderBottom:'0.5px solid #F2F2F7' }}>
+                <div style={{ display:'flex', gap:10 }}>
+                  <span style={{ fontFamily:'monospace', fontSize:12, color:'#86868B' }}>{l.accountCode}</span>
+                  <span style={{ fontSize:13, color:'#3A3A3C' }}>{l.accountName}</span>
+                </div>
+                <span style={{ fontSize:13, fontWeight:500, color:'#FF9F0A' }}>{formatCurrency(l.amount)}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Utilidad neta */}
+          <div style={{ padding:'16px 20px', background: report.netIncome >= 0 ? '#E8F5E9' : '#FFEBEE', borderRadius:12, border:`1px solid ${report.netIncome >= 0 ? '#C8E6C9' : '#FFCDD2'}`, display:'flex', justifyContent:'space-between' }}>
+            <span style={{ fontSize:15, fontWeight:700 }}>UTILIDAD NETA</span>
+            <span style={{ fontSize:18, fontWeight:800, color: report.netIncome >= 0 ? '#34C759' : '#FF3B30' }}>
+              {formatCurrency(report.netIncome)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {!report && !loading && !error && (
+        <div className="mx-empty">Selecciona el período y haz clic en "Generar P&L"</div>
+      )}
+    </div>
+  );
+}
+
+// ── Tab 6: Períodos ────────────────────────────────────────────
+
+function PeriodsTab() {
+  const [periods, setPeriods] = useState<Period[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState('');
+  const [closing, setClosing] = useState('');
+  const { canPostEntry } = usePermissions();
+
+  const load = () => {
+    setLoading(true);
+    authClient.get('/accounting/periods/closed')
+      .then(r => setPeriods(Array.isArray(r.data) ? r.data : []))
+      .catch(ex => setError(errMsg(ex)))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleClose = async () => {
+    const now = new Date();
+    const year = parseInt(prompt('Año a cerrar:', String(now.getFullYear())) ?? '');
+    const month = parseInt(prompt('Mes a cerrar (1-12):', String(now.getMonth() + 1)) ?? '');
+    if (!year || !month) return;
+    setClosing(`${year}-${month}`);
+    try {
+      await authClient.post(`/accounting/periods/${year}/${month}/close`);
+      load();
+    } catch (ex) { setError(errMsg(ex)); }
+    finally { setClosing(''); }
+  };
+
+  return (
+    <div>
+      <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:16 }}>
+        {canPostEntry && (
+          <button onClick={handleClose} disabled={!!closing} className="mx-btn mx-btn-primary" style={{ background:'#1D1D1F' }}>
+            <Lock size={14}/>{closing ? 'Cerrando…' : 'Cerrar período'}
+          </button>
+        )}
+      </div>
+      {error && <div className="mx-alert mx-alert-error" style={{ marginBottom:16 }}>{error}</div>}
+      <div className="mx-card-section">
+        {loading ? (
+          <div style={{ padding:16, display:'flex', flexDirection:'column', gap:8 }}>
+            {[1,2,3].map(i => <div key={i} className="mx-skeleton" style={{ height:36, borderRadius:8 }} />)}
+          </div>
+        ) : periods.length === 0 ? (
+          <div className="mx-empty">Sin períodos cerrados</div>
+        ) : (
+          <table className="mx-table">
+            <thead><tr><th>Período</th><th>Cerrado el</th><th>Por</th></tr></thead>
+            <tbody>
+              {periods.map((p, i) => (
+                <tr key={i}>
+                  <td style={{ fontWeight:600 }}>{MONTH_NAMES[p.month-1]} {p.year}</td>
+                  <td style={{ color:'#86868B' }}>{formatDate(p.closedAt)}</td>
+                  <td style={{ color:'#86868B' }}>{p.closedBy}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Página principal ───────────────────────────────────────────
+
+const TABS = [
+  { id:'plan',    label:'Plan de cuentas', icon:<List size={14}/> },
+  { id:'journal', label:'Libro Diario',    icon:<BookOpen size={14}/> },
+  { id:'ledger',  label:'Mayor',           icon:<BarChart2 size={14}/> },
+  { id:'balance', label:'Balance General', icon:<Scale size={14}/> },
+  { id:'pl',      label:'P&L',             icon:<TrendingUp size={14}/> },
+  { id:'periods', label:'Períodos',        icon:<Lock size={14}/> },
+];
 
 export default function AccountingPage() {
-  const [tab,            setTab]            = useState(0);
-  const [ledgerCode,     setLedgerCode]     = useState('');
+  const [tab,          setTab]          = useState('plan');
+  const [ledgerCode,   setLedgerCode]   = useState('');
 
   const goToLedger = (code: string) => {
     setLedgerCode(code);
-    setTab(2);
+    setTab('ledger');
   };
 
   return (
     <div className="mx-fade-in">
       <div className="mx-page-header">
-        <h1 className="mx-page-title">Contabilidad</h1>
+        <div>
+          <h1 className="mx-page-title">Contabilidad</h1>
+          <p className="mx-page-subtitle">Plan contable PCGE · Libro Diario · Mayor · Estados Financieros · Cierre de períodos.</p>
+        </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-[#F2F2F7] p-1 rounded-xl w-fit">
-        {TABS.map((t, i) => (
-          <button
-            key={t}
-            onClick={() => setTab(i)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              tab === i
-                ? 'bg-white text-[#1D1D1F] shadow-sm'
-                : 'text-[#86868B] hover:text-[#1D1D1F]'
-            }`}
+      <div style={{ display:'flex', gap:2, background:'rgba(0,0,0,0.05)', padding:3, borderRadius:12, width:'fit-content', marginBottom:24 }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{
+              display:'inline-flex', alignItems:'center', gap:6,
+              padding:'7px 14px', borderRadius:8, border:'none',
+              fontSize:13, fontWeight:500, cursor:'pointer',
+              fontFamily:'inherit', whiteSpace:'nowrap',
+              background: tab === t.id ? '#fff' : 'transparent',
+              color:      tab === t.id ? '#1D1D1F' : '#86868B',
+              boxShadow:  tab === t.id ? '0 1px 4px rgba(0,0,0,0.10)' : 'none',
+              transition: 'all 0.12s',
+            }}
           >
-            {t}
+            {t.icon}{t.label}
           </button>
         ))}
       </div>
 
-      {tab === 0 && <ChartOfAccountsTab onViewLedger={goToLedger} />}
-      {tab === 1 && <JournalTab />}
-      {tab === 2 && <LedgerTab preselectedCode={ledgerCode} />}
+      {tab === 'plan'    && <PlanTab onViewLedger={goToLedger} />}
+      {tab === 'journal' && <JournalTab />}
+      {tab === 'ledger'  && <LedgerTab preselectedCode={ledgerCode} />}
+      {tab === 'balance' && <BalanceTab />}
+      {tab === 'pl'      && <PLTab />}
+      {tab === 'periods' && <PeriodsTab />}
     </div>
   );
 }

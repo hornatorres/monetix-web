@@ -2,173 +2,92 @@
 
 import { useState, useCallback } from 'react';
 import { authClient } from '@/lib/authClient';
-import { errMsg } from '@/lib/utils';
-import {
-  Download, FileDown, FileSpreadsheet, Star, Loader2,
-  TrendingUp, Scale, BookOpen, FileText, ShoppingCart, Banknote,
-} from 'lucide-react';
+import { formatCurrency, errMsg } from '@/lib/utils';
+import { Download, FileSpreadsheet, Star, Loader2, TrendingUp, Scale, Banknote, BookOpen, FileText, ShoppingCart } from 'lucide-react';
 
-// ── Tipos ─────────────────────────────────────────────────────
-
-interface Report {
-  id:           string;
-  emoji:        React.ReactNode;
-  title:        string;
-  description:  string;
-  endpoint:     string;
-  usesDate:     boolean;   // true = usa "date" en vez de from/to
-}
+interface Report { id:string; icon:React.ReactNode; title:string; description:string; endpoint:string; usesDate:boolean; }
 
 const REPORTS: Report[] = [
-  { id: 'income-statement', emoji: <TrendingUp size={18} />, title: 'Estado de Resultados',
-    description: 'Ingresos, costos y utilidad del período.',   endpoint: '/reports/income-statement', usesDate: false },
-  { id: 'balance-sheet',    emoji: <Scale size={18} />,       title: 'Balance General',
-    description: 'Activos, pasivos y patrimonio a la fecha.',  endpoint: '/reports/balance-sheet',    usesDate: true  },
-  { id: 'cash-flow',        emoji: <Banknote size={18} />,    title: 'Flujo de Caja',
-    description: 'Ingresos y egresos del período.',            endpoint: '/reports/cash-flow',        usesDate: false },
-  { id: 'journal',          emoji: <BookOpen size={18} />,    title: 'Libro Diario',
-    description: 'Asientos contables del período.',            endpoint: '/reports/journal',          usesDate: false },
-  { id: 'invoices',         emoji: <FileText size={18} />,    title: 'Reporte de Facturas',
-    description: 'Facturas emitidas en el período.',           endpoint: '/reports/invoices',         usesDate: false },
-  { id: 'purchases',        emoji: <ShoppingCart size={18} />,title: 'Reporte de Compras',
-    description: 'Compras registradas en el período.',         endpoint: '/reports/purchases',        usesDate: false },
+  { id:'income-statement', icon:<TrendingUp size={17}/>, title:'Estado de Resultados', description:'Ingresos, costos y utilidad del período.', endpoint:'/reports/income-statement', usesDate:false },
+  { id:'balance-sheet',    icon:<Scale size={17}/>,       title:'Balance General',       description:'Activos, pasivos y patrimonio a la fecha.', endpoint:'/reports/balance-sheet', usesDate:true },
+  { id:'cash-flow',        icon:<Banknote size={17}/>,    title:'Flujo de Caja',          description:'Ingresos y egresos del período.', endpoint:'/reports/cash-flow', usesDate:false },
+  { id:'journal',          icon:<BookOpen size={17}/>,    title:'Libro Diario',           description:'Asientos contables del período.', endpoint:'/reports/journal', usesDate:false },
+  { id:'invoices',         icon:<FileText size={17}/>,    title:'Reporte de Facturas',    description:'Facturas emitidas en el período.', endpoint:'/reports/invoices', usesDate:false },
+  { id:'purchases',        icon:<ShoppingCart size={17}/>,title:'Reporte de Compras',     description:'Compras registradas en el período.', endpoint:'/reports/purchases', usesDate:false },
 ];
 
-// Períodos rápidos
-type PeriodKey = 'month' | 'quarter' | 'semester' | 'year';
-function getPeriod(key: PeriodKey): { from: string; to: string; label: string } {
-  const now   = new Date();
-  const y     = now.getFullYear();
-  const m     = now.getMonth();
-  const pad   = (n: number) => String(n).padStart(2, '0');
-  const fmt   = (d: Date)   => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-  const today = fmt(now);
+type PeriodKey = 'month'|'quarter'|'semester'|'year';
 
-  switch (key) {
-    case 'month':
-      return { from: `${y}-${pad(m+1)}-01`, to: today, label: now.toLocaleString('es-PE', { month: 'long', year: 'numeric' }) };
-    case 'quarter': {
-      const qStart = new Date(y, Math.floor(m/3)*3, 1);
-      return { from: fmt(qStart), to: today, label: `T${Math.floor(m/3)+1} ${y}` };
-    }
-    case 'semester': {
-      const sStart = new Date(y, m < 6 ? 0 : 6, 1);
-      return { from: fmt(sStart), to: today, label: `${m < 6 ? '1er' : '2do'} semestre ${y}` };
-    }
-    case 'year':
-      return { from: `${y}-01-01`, to: today, label: `Año ${y}` };
+function getPeriod(key:PeriodKey): { from:string; to:string; label:string } {
+  const now=new Date(); const y=now.getFullYear(); const m=now.getMonth();
+  const pad=(n:number)=>String(n).padStart(2,'0');
+  const fmt=(d:Date)=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const today=fmt(now);
+  switch(key) {
+    case 'month':    return { from:`${y}-${pad(m+1)}-01`, to:today, label:now.toLocaleString('es-PE',{month:'long',year:'numeric'}) };
+    case 'quarter':  { const qs=new Date(y,Math.floor(m/3)*3,1); return { from:fmt(qs), to:today, label:`T${Math.floor(m/3)+1} ${y}` }; }
+    case 'semester': { const ss=new Date(y,m<6?0:6,1); return { from:fmt(ss), to:today, label:`${m<6?'1er':'2do'} semestre ${y}` }; }
+    case 'year':     return { from:`${y}-01-01`, to:today, label:`Año ${y}` };
   }
 }
-
-// ── Componente principal ──────────────────────────────────────
 
 export default function ReportsPage() {
   const [period,    setPeriod]    = useState<PeriodKey>('month');
   const [from,      setFrom]      = useState(() => getPeriod('month').from);
   const [to,        setTo]        = useState(() => new Date().toISOString().split('T')[0]);
   const [selected,  setSelected]  = useState<Set<string>>(new Set());
-  const [favorites, setFavorites] = useState<Set<string>>(new Set(['income-statement', 'cash-flow']));
-  const [loading,   setLoading]   = useState<string | null>(null);
+  const [favorites, setFavorites] = useState<Set<string>>(new Set(['income-statement','cash-flow']));
+  const [loading,   setLoading]   = useState<string|null>(null);
   const [error,     setError]     = useState('');
 
+  const handlePeriod = (key:PeriodKey) => { setPeriod(key); const p=getPeriod(key); setFrom(p.from); setTo(p.to); };
+  const toggleSelect  = (id:string) => setSelected(prev => { const s=new Set(prev); s.has(id)?s.delete(id):s.add(id); return s; });
+  const toggleFav     = (id:string) => setFavorites(prev => { const s=new Set(prev); s.has(id)?s.delete(id):s.add(id); return s; });
+  const toggleAll     = () => setSelected(prev => prev.size===REPORTS.length ? new Set() : new Set(REPORTS.map(r=>r.id)));
   const isBusy = loading !== null;
 
-  const handlePeriod = (key: PeriodKey) => {
-    setPeriod(key);
-    const p = getPeriod(key);
-    setFrom(p.from);
-    setTo(p.to);
-  };
-
-  const toggleSelect  = (id: string) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
-  const toggleFav     = (id: string) => setFavorites(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
-  const toggleAll     = () => setSelected(prev => prev.size === REPORTS.length ? new Set() : new Set(REPORTS.map(r => r.id)));
-
-  // ── Descarga PDF ────────────────────────────────────────────
-  const downloadPdf = useCallback(async (report: Report) => {
+  const downloadPdf = useCallback(async (report:Report) => {
     const params = new URLSearchParams();
-    if (report.usesDate) { params.set('date', to); }
-    else                 { params.set('from', from); params.set('to', to); }
-
-    const res = await authClient.get(`${report.endpoint}?${params}`, { responseType: 'blob' });
-    const url  = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `${report.id}-${from}-${to}.pdf`;
-    document.body.appendChild(a); a.click(); a.remove();
-    window.URL.revokeObjectURL(url);
+    if (report.usesDate) params.set('date',to); else { params.set('from',from); params.set('to',to); }
+    const res = await authClient.get(`${report.endpoint}?${params}`, { responseType:'blob' });
+    const url = window.URL.createObjectURL(new Blob([res.data],{type:'application/pdf'}));
+    const a = document.createElement('a'); a.href=url; a.download=`${report.id}-${from}-${to}.pdf`;
+    document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
   }, [from, to]);
 
-  // ── Descarga Excel (generado en frontend con datos del backend) ──
-  const downloadExcel = useCallback(async (report: Report) => {
+  const downloadExcel = useCallback(async (report:Report) => {
     const params = new URLSearchParams();
-    if (report.usesDate) { params.set('date', to); params.set('format', 'json'); }
-    else                 { params.set('from', from); params.set('to', to); params.set('format', 'json'); }
-
+    if (report.usesDate) params.set('date',to); else { params.set('from',from); params.set('to',to); }
+    params.set('format','json');
     try {
-      // Intentar obtener datos JSON del mismo endpoint
-      const res  = await authClient.get(`${report.endpoint}?${params}`);
+      const res = await authClient.get(`${report.endpoint}?${params}`);
       const data = res.data;
-
-      // Convertir a CSV simple (compatible con Excel)
       let csv = '';
       if (Array.isArray(data)) {
-        if (data.length > 0) {
-          csv = Object.keys(data[0]).join(',') + '\n';
-          csv += data.map((row: any) => Object.values(row).map((v: any) =>
-            typeof v === 'string' && v.includes(',') ? `"${v}"` : v
-          ).join(',')).join('\n');
-        }
-      } else if (typeof data === 'object') {
-        // Para reportes tipo balance que devuelven objeto
-        const flatten = (obj: any, prefix = ''): string[][] =>
-          Object.entries(obj).flatMap(([k, v]) =>
-            typeof v === 'object' && v !== null && !Array.isArray(v)
-              ? flatten(v, prefix ? `${prefix}.${k}` : k)
-              : [[prefix ? `${prefix}.${k}` : k, String(v)]]
-          );
-        const rows = flatten(data);
-        csv = 'Campo,Valor\n' + rows.map(r => r.join(',')).join('\n');
+        if (data.length>0) { csv=Object.keys(data[0]).join(',')+'\n'; csv+=data.map((row:any)=>Object.values(row).map((v:any)=>typeof v==='string'&&v.includes(',')?`"${v}"`:v).join(',')).join('\n'); }
+      } else if (typeof data==='object') {
+        const flatten=(obj:any,prefix=''):string[][]=>Object.entries(obj).flatMap(([k,v])=>typeof v==='object'&&v!==null&&!Array.isArray(v)?flatten(v,prefix?`${prefix}.${k}`:k):[[prefix?`${prefix}.${k}`:k,String(v)]]);
+        const rows=flatten(data); csv='Campo,Valor\n'+rows.map(r=>r.join(',')).join('\n');
       }
-
-      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-      const url  = window.URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = `${report.id}-${from}-${to}.csv`;
-      document.body.appendChild(a); a.click(); a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch {
-      // Si el endpoint no soporta JSON, descargar el PDF como fallback
-      await downloadPdf(report);
-    }
+      const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+      const url=window.URL.createObjectURL(blob);
+      const a=document.createElement('a'); a.href=url; a.download=`${report.id}-${from}-${to}.csv`;
+      document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
+    } catch { await downloadPdf(report); }
   }, [from, to, downloadPdf]);
 
-  // ── Exportación individual ───────────────────────────────────
-  const handleExport = async (report: Report, format: 'pdf' | 'xlsx') => {
-    setLoading(report.id + '-' + format);
-    setError('');
-    try {
-      if (format === 'pdf')  await downloadPdf(report);
-      else                   await downloadExcel(report);
-    } catch (ex) { setError(`Error: ${errMsg(ex)}`); }
+  const handleExport = async (report:Report, format:'pdf'|'xlsx') => {
+    setLoading(report.id+'-'+format); setError('');
+    try { if (format==='pdf') await downloadPdf(report); else await downloadExcel(report); }
+    catch (ex) { setError(errMsg(ex)); }
     finally { setLoading(null); }
   };
 
-  // ── Exportación masiva ───────────────────────────────────────
-  const bulkExport = async (format: 'pdf' | 'xlsx' | 'both') => {
-    const targets = selected.size > 0
-      ? REPORTS.filter(r => selected.has(r.id))
-      : REPORTS;
-
-    setLoading('bulk');
-    setError('');
-    try {
-      for (const report of targets) {
-        if (format === 'pdf' || format === 'both')  await downloadPdf(report);
-        if (format === 'xlsx' || format === 'both') await downloadExcel(report);
-      }
-    } catch (ex) { setError(`Error en exportación masiva: ${errMsg(ex)}`); }
+  const bulkExport = async (format:'pdf'|'xlsx'|'both') => {
+    const targets = selected.size>0 ? REPORTS.filter(r=>selected.has(r.id)) : REPORTS;
+    setLoading('bulk'); setError('');
+    try { for (const r of targets) { if (format==='pdf'||format==='both') await downloadPdf(r); if (format==='xlsx'||format==='both') await downloadExcel(r); } }
+    catch (ex) { setError(errMsg(ex)); }
     finally { setLoading(null); }
   };
 
@@ -177,97 +96,81 @@ export default function ReportsPage() {
 
   return (
     <div className="mx-fade-in">
-      {/* Header */}
       <div className="mx-page-header">
-        <div>
-          <h1 className="mx-page-title">Reportes</h1>
-          <p className="text-xs text-[#86868B] mt-0.5">Centro de reportes financieros</p>
-        </div>
+        <div><h1 className="mx-page-title">Reportes</h1><p className="mx-page-subtitle">Centro de reportes financieros</p></div>
       </div>
-
-      {error && (
-        <div className="mb-4 p-3 rounded-xl bg-[#FCEBEB] text-sm text-[#791F1F]">{error}</div>
-      )}
+      {error && <div className="mx-alert mx-alert-error" style={{ marginBottom:16 }}>{error}</div>}
 
       {/* Selector de período */}
-      <div className="mx-card p-4 mb-4">
-        <div className="flex items-center gap-6 flex-wrap">
-          <div className="flex gap-1 bg-[#F2F2F7] p-1 rounded-xl">
+      <div className="mx-form-card" style={{ marginBottom:20 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:20, flexWrap:'wrap' }}>
+          <div style={{ display:'flex', gap:2, background:'rgba(0,0,0,0.05)', padding:3, borderRadius:10 }}>
             {(['month','quarter','semester','year'] as PeriodKey[]).map(k => (
               <button key={k} onClick={() => handlePeriod(k)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  period === k ? 'bg-white text-[#1D1D1F] shadow-sm' : 'text-[#86868B]'
-                }`}>
-                {k === 'month' ? 'Mes' : k === 'quarter' ? 'Trimestre' : k === 'semester' ? 'Semestre' : 'Año'}
+                style={{ padding:'6px 14px', borderRadius:7, border:'none', fontSize:12, fontWeight:500, cursor:'pointer', fontFamily:'inherit', background: period===k ? '#fff' : 'transparent', color: period===k ? '#1D1D1F' : '#86868B', boxShadow: period===k ? '0 1px 3px rgba(0,0,0,0.10)' : 'none' }}>
+                {k==='month'?'Mes':k==='quarter'?'Trimestre':k==='semester'?'Semestre':'Año'}
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2">
-            <input type="date" className="mx-input w-36 text-xs" value={from} onChange={e => setFrom(e.target.value)} />
-            <span className="text-[#86868B] text-xs">→</span>
-            <input type="date" className="mx-input w-36 text-xs" value={to} onChange={e => setTo(e.target.value)} />
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <input type="date" className="mx-input" style={{ width:150 }} value={from} onChange={e => setFrom(e.target.value)} />
+            <span style={{ color:'#86868B', fontSize:13 }}>→</span>
+            <input type="date" className="mx-input" style={{ width:150 }} value={to} onChange={e => setTo(e.target.value)} />
           </div>
-          <span className="text-xs text-[#86868B] ml-auto">{periodLabel}</span>
+          <span style={{ fontSize:12, color:'#86868B', marginLeft:'auto' }}>{periodLabel}</span>
         </div>
       </div>
 
       {/* Favoritos */}
       {favReports.length > 0 && (
-        <div className="mb-4">
-          <p className="text-xs font-medium text-[#86868B] mb-2 px-1">⭐ Favoritos</p>
-          <div className="flex gap-2 flex-wrap">
+        <div style={{ marginBottom:20 }}>
+          <p style={{ fontSize:11, fontWeight:600, color:'#86868B', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:8 }}>⭐ Acceso rápido</p>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
             {favReports.map(r => (
-              <button key={r.id} onClick={() => handleExport(r, 'pdf')} disabled={isBusy}
-                className="mx-btn-secondary text-xs px-3 py-2 flex items-center gap-1.5">
-                {r.emoji} {r.title}
-                {loading === r.id + '-pdf' && <Loader2 size={11} className="animate-spin" />}
+              <button key={r.id} onClick={() => handleExport(r,'pdf')} disabled={isBusy}
+                className="mx-btn mx-btn-secondary" style={{ fontSize:12, padding:'7px 14px', gap:6 }}>
+                {r.icon} {r.title}
+                {loading===r.id+'-pdf' && <Loader2 size={11} style={{ animation:'spin 1s linear infinite' }}/>}
               </button>
             ))}
           </div>
         </div>
       )}
 
-      {/* Grid de reportes */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+      {/* Grid */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:14, marginBottom:16 }}>
         {REPORTS.map(r => {
-          const isSelected = selected.has(r.id);
-          const isFav      = favorites.has(r.id);
-          const loadPdf    = loading === r.id + '-pdf';
-          const loadXlsx   = loading === r.id + '-xlsx';
-
+          const isSelected=selected.has(r.id);
+          const isFav=favorites.has(r.id);
+          const loadPdf=loading===r.id+'-pdf';
+          const loadXlsx=loading===r.id+'-xlsx';
           return (
             <div key={r.id}
-              className={`mx-card p-5 flex flex-col gap-3 transition-all cursor-pointer ${isSelected ? 'ring-2 ring-[#0071E3]' : ''}`}
               onClick={() => toggleSelect(r.id)}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-3">
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                    isSelected ? 'bg-[#0071E3] text-white' : 'bg-[#E3F2FD] text-[#0071E3]'
-                  }`}>
-                    {r.emoji}
+              style={{ background:'#fff', borderRadius:16, border:`1px solid ${isSelected?'#0071E3':'#E5E5EA'}`, padding:18, cursor:'pointer', boxShadow: isSelected ? '0 0 0 2px rgba(0,113,227,0.15)' : '0 1px 3px rgba(0,0,0,0.05)', transition:'all 0.1s', display:'flex', flexDirection:'column', gap:12 }}>
+              <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <div style={{ width:36, height:36, borderRadius:10, background: isSelected ? '#0071E3' : '#EFF6FF', display:'flex', alignItems:'center', justifyContent:'center', color: isSelected ? '#fff' : '#0071E3', flexShrink:0 }}>
+                    {r.icon}
                   </div>
                   <div>
-                    <h3 className="text-sm font-medium text-[#1D1D1F]">{r.title}</h3>
-                    <p className="text-xs text-[#86868B] mt-0.5">{r.description}</p>
+                    <p style={{ fontSize:13, fontWeight:600, color:'#1D1D1F' }}>{r.title}</p>
+                    <p style={{ fontSize:11, color:'#86868B', marginTop:1 }}>{r.description}</p>
                   </div>
                 </div>
                 <button onClick={e => { e.stopPropagation(); toggleFav(r.id); }}
-                  className={`flex-shrink-0 p-1 rounded-lg transition-colors ${isFav ? 'text-[#FF9F0A]' : 'text-[#D1D1D6] hover:text-[#FF9F0A]'}`}>
-                  <Star size={14} fill={isFav ? '#FF9F0A' : 'none'} />
+                  style={{ background:'none', border:'none', cursor:'pointer', color: isFav ? '#FF9F0A' : '#D1D1D6', padding:4 }}>
+                  <Star size={14} fill={isFav?'#FF9F0A':'none'}/>
                 </button>
               </div>
-
-              <div className="flex gap-2" onClick={e => e.stopPropagation()}>
-                <button onClick={() => handleExport(r, 'pdf')} disabled={isBusy}
-                  className="flex-1 mx-btn-secondary text-xs py-1.5 justify-center">
-                  {loadPdf ? <Loader2 size={11} className="animate-spin" /> : <FileDown size={11} />}
-                  PDF
+              <div style={{ display:'flex', gap:8 }} onClick={e => e.stopPropagation()}>
+                <button onClick={() => handleExport(r,'pdf')} disabled={isBusy}
+                  className="mx-btn mx-btn-secondary" style={{ flex:1, justifyContent:'center', fontSize:12, padding:'7px 10px' }}>
+                  {loadPdf ? <Loader2 size={11}/> : <Download size={11}/>} PDF
                 </button>
-                <button onClick={() => handleExport(r, 'xlsx')} disabled={isBusy}
-                  className="flex-1 mx-btn-secondary text-xs py-1.5 justify-center text-[#34C759]">
-                  {loadXlsx ? <Loader2 size={11} className="animate-spin" /> : <FileSpreadsheet size={11} />}
-                  Excel
+                <button onClick={() => handleExport(r,'xlsx')} disabled={isBusy}
+                  className="mx-btn mx-btn-secondary" style={{ flex:1, justifyContent:'center', fontSize:12, padding:'7px 10px', color:'#34C759' }}>
+                  {loadXlsx ? <Loader2 size={11}/> : <FileSpreadsheet size={11}/>} Excel
                 </button>
               </div>
             </div>
@@ -275,40 +178,22 @@ export default function ReportsPage() {
         })}
       </div>
 
-      {/* Barra de exportación masiva */}
-      <div className="mx-card p-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <button onClick={toggleAll} className="mx-btn-secondary text-xs px-3 py-1.5">
-            {selected.size === REPORTS.length ? 'Deseleccionar todo' : 'Seleccionar todo'}
+      {/* Barra bulk */}
+      <div style={{ background:'#fff', borderRadius:14, border:'0.5px solid #E5E5EA', padding:'14px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:16, flexWrap:'wrap' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <button onClick={toggleAll} className="mx-btn mx-btn-secondary" style={{ fontSize:12, padding:'6px 14px' }}>
+            {selected.size===REPORTS.length ? 'Deseleccionar todo' : 'Seleccionar todo'}
           </button>
-          <p className="text-sm font-medium text-[#1D1D1F]">
-            {selected.size > 0
-              ? `${selected.size} reporte${selected.size > 1 ? 's' : ''} seleccionado${selected.size > 1 ? 's' : ''}`
-              : 'Exportar todos los reportes'}
-          </p>
-          <p className="text-xs text-[#86868B]">
-            {selected.size > 0
-              ? REPORTS.filter(r => selected.has(r.id)).map(r => r.title).join(', ')
-              : `Período: ${periodLabel}`}
+          <p style={{ fontSize:13, fontWeight:500 }}>
+            {selected.size>0 ? `${selected.size} reporte(s) seleccionado(s)` : `Período: ${periodLabel}`}
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={() => bulkExport('pdf')} disabled={isBusy}
-            className="mx-btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5">
-            <FileDown size={13} className="text-[#FF3B30]" /> PDF
-          </button>
-          <button onClick={() => bulkExport('xlsx')} disabled={isBusy}
-            className="mx-btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5">
-            <FileSpreadsheet size={13} className="text-[#34C759]" /> Excel
-          </button>
-          <button onClick={() => bulkExport('both')} disabled={isBusy}
-            className="mx-btn-secondary text-xs px-3 py-1.5">
-            PDF + Excel
-          </button>
-          <button onClick={() => bulkExport('pdf')} disabled={isBusy}
-            className="mx-btn-primary text-xs px-4 py-1.5">
-            {loading === 'bulk' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-            {selected.size > 0 ? 'Exportar seleccionados' : 'Exportar todos'}
+        <div style={{ display:'flex', gap:8 }}>
+          <button onClick={() => bulkExport('pdf')} disabled={isBusy} className="mx-btn mx-btn-secondary" style={{ fontSize:12 }}><Download size={13} style={{ color:'#FF3B30' }}/> PDF</button>
+          <button onClick={() => bulkExport('xlsx')} disabled={isBusy} className="mx-btn mx-btn-secondary" style={{ fontSize:12 }}><FileSpreadsheet size={13} style={{ color:'#34C759' }}/> Excel</button>
+          <button onClick={() => bulkExport('pdf')} disabled={isBusy} className="mx-btn mx-btn-primary" style={{ fontSize:12 }}>
+            {loading==='bulk' ? <Loader2 size={13}/> : <Download size={13}/>}
+            {selected.size>0 ? 'Exportar seleccionados' : 'Exportar todos'}
           </button>
         </div>
       </div>

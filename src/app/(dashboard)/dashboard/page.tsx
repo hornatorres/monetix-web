@@ -131,17 +131,32 @@ function ScoreRing({ score, color }: { score:number; color:string }) {
 
 // ── KPI Card ──────────────────────────────────────────────────
 
-function KpiCard({ icon, label, value, sub, color='#1D1D1F', onClick }:{
+function KpiCard({ icon, label, value, sub, hint, color='#1D1D1F', onClick }:{
   icon:React.ReactNode; label:string; value:string;
-  sub?:string; color?:string; onClick?:()=>void;
+  sub?:string; hint?:string; color?:string; onClick?:()=>void;
 }) {
+  const [showHint, setShowHint] = useState(false);
   return (
-    <div onClick={onClick} style={{ background:'#fff', borderRadius:16, border:'0.5px solid rgba(0,0,0,0.06)', boxShadow:'0 1px 4px rgba(0,0,0,0.06)', padding:'16px 18px', display:'flex', flexDirection:'column', gap:8, cursor: onClick ? 'pointer' : 'default' }}>
+    <div onClick={onClick} style={{ background:'#fff', borderRadius:16, border:'0.5px solid rgba(0,0,0,0.06)', boxShadow:'0 1px 4px rgba(0,0,0,0.06)', padding:'16px 18px', display:'flex', flexDirection:'column', gap:8, cursor: onClick ? 'pointer' : 'default', position:'relative' }}>
       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
         <div style={{ width:30, height:30, borderRadius:9, background:`${color}15`, display:'flex', alignItems:'center', justifyContent:'center', color }}>
           {icon}
         </div>
         <span style={{ fontSize:10, fontWeight:600, color:'#86868B', textTransform:'uppercase', letterSpacing:'0.4px' }}>{label}</span>
+        {hint && (
+          <div style={{ marginLeft:'auto', position:'relative' }}>
+            <button
+              onClick={e => { e.stopPropagation(); setShowHint(v => !v); }}
+              style={{ width:16, height:16, borderRadius:'50%', background:'#F2F2F7', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, color:'#86868B', lineHeight:1, padding:0 }}
+            >?</button>
+            {showHint && (
+              <div style={{ position:'absolute', top:22, right:0, background:'#1D1D1F', color:'#fff', fontSize:11, lineHeight:1.5, padding:'8px 12px', borderRadius:10, width:200, zIndex:99, boxShadow:'0 4px 16px rgba(0,0,0,0.18)', whiteSpace:'normal' }}>
+                {hint}
+                <div style={{ position:'absolute', top:-5, right:6, width:0, height:0, borderLeft:'5px solid transparent', borderRight:'5px solid transparent', borderBottom:'5px solid #1D1D1F' }}/>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <div style={{ fontSize:24, fontWeight:700, color:'#1D1D1F', letterSpacing:'-0.5px', lineHeight:1 }}>{value}</div>
       {sub && <div style={{ fontSize:11, color:'#86868B' }}>{sub}</div>}
@@ -218,8 +233,10 @@ export default function DashboardPage() {
 
       {/* KPI Row — 5 indicadores */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12, marginBottom:16 }}>
-        <KpiCard icon={<TrendingUp size={15}/>} label="MRR" value={fmtAbbr(kpis.mrr.value)} color="#0071E3"/>
-        <KpiCard icon={<TrendingUp size={15}/>} label="ARR" value={fmtAbbr(kpis.arr.value)} color="#5856D6"/>
+        <KpiCard icon={<TrendingUp size={15}/>} label="MRR" value={fmtAbbr(kpis.mrr.value)} color="#0071E3"
+          hint="Monthly Recurring Revenue — ingresos facturados en el mes actual, incluyendo ventas únicas y suscripciones."/>
+        <KpiCard icon={<TrendingUp size={15}/>} label="ARR" value={fmtAbbr(kpis.arr.value)} color="#5856D6"
+          hint="Annual Recurring Revenue — proyección anual del MRR actual (MRR × 12). Indicador clave para evaluar el crecimiento sostenible del negocio."/>
         <KpiCard icon={<ShoppingCart size={15}/>} label="Gastos" value={fmtAbbr(kpis.totalCosts.value)} color="#FF3B30"/>
         <KpiCard
           icon={<CreditCard size={15}/>}

@@ -102,6 +102,16 @@ function computeDecisions(kpis: DashboardData['kpis'], availableCash: number, de
       action:'Ver analítica →', href:'/reports' });
   }
 
+  // Sin datos — base vacía
+  const hasData = mrr > 0 || ar > 0 || ap > 0;
+  if (!hasData) {
+    decisions.push({ type:'neutral', color:'#3A3A3C', bgColor:'#F9F9FB', borderColor:'#AEAEB2',
+      title:'Sin datos para analizar.',
+      body:'Registra clientes, productos y ventas para activar el análisis ejecutivo automático.',
+      action:'Crear primera factura →', href:'/invoices/new' });
+    return decisions;
+  }
+
   if (decisions.length === 0) {
     decisions.push({ type:'ok', color:'#27500A', bgColor:'#F0FDF4', borderColor:'#34C759',
       title:'Operación saludable.',
@@ -315,8 +325,8 @@ export default function DashboardPage() {
                 <div key={i} style={{ background:d.bgColor, borderRadius:10, borderLeft:`3px solid ${d.borderColor}`, padding:'10px 12px', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10 }}>
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:10, fontWeight:700, color:d.color, textTransform:'uppercase', marginBottom:3, display:'flex', alignItems:'center', gap:4 }}>
-                      {d.type==='alert'?<AlertTriangle size={10}/>:d.type==='opportunity'?<Lightbulb size={10}/>:<CheckCircle2 size={10}/>}
-                      {d.type==='alert'?'ATENCIÓN':d.type==='opportunity'?'OPORTUNIDAD':'BIEN'}
+                      {d.type==='alert'?<AlertTriangle size={10}/>:d.type==='opportunity'?<Lightbulb size={10}/>:d.type==='ok'?<CheckCircle2 size={10}/>:null}
+                      {d.type==='alert'?'ATENCIÓN':d.type==='opportunity'?'OPORTUNIDAD':d.type==='ok'?'BIEN':'INFO'}
                     </div>
                     <div style={{ fontSize:12, fontWeight:600, color:'#1D1D1F', marginBottom:2 }}>{d.title}</div>
                     <div style={{ fontSize:11, color:'#3A3A3C', lineHeight:1.4 }}>{d.body}</div>

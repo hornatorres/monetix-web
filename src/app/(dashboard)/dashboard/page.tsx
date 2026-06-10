@@ -43,21 +43,28 @@ function computeHealth(kpis: DashboardData['kpis'], availableCash: number) {
   const ar        = Number(kpis.ar.value);
   const ap        = Number(kpis.ap.value);
 
+  // Sin datos suficientes — base vacía
+  const hasData = mrr > 0 || ar > 0 || ap > 0 || costs > 0 || availableCash > 0;
+  if (!hasData) {
+    return { ventas:0, margen:0, cobros:0, pagos:0, liquidez:0, eficiencia:0, overall:0, noData:true };
+  }
+
   // Ventas: % respecto a un target del 120% del MRR
   const ventas     = clamp(mrr > 0 ? Math.min((mrr / Math.max(mrr * 1.2, 1)) * 100, 100) : 0);
   // Margen: directo del grossMarginPct (ya viene en 0-100)
   const margen     = clamp(marginPct > 1 ? marginPct : marginPct * 100);
-  // Cobros: penaliza si AR > 30% del MRR (mucho dinero sin cobrar)
-  const cobros     = clamp(mrr > 0 && ar > 0 ? Math.max(0, 100 - (ar / mrr) * 60) : ar === 0 ? 100 : 50);
-  // Pagos: penaliza si AP > caja disponible (no se puede cubrir)
-  const pagos      = clamp(ap > 0 ? Math.max(10, 100 - (ap / Math.max(availableCash, 1)) * 40) : 100);
-  // Liquidez: runway en meses (caja / costos). Sin costos: basado en caja vs AP
-  const runway     = costs > 0 ? availableCash / (costs / 1) : (ap > 0 ? availableCash / ap : 1);
-  const liquidez   = clamp(runway >= 3 ? 90 : runway >= 1 ? 60 : runway >= 0.5 ? 35 : 15);
+  // Cobros: penaliza si AR supera el MRR (mucho dinero sin cobrar). Sin ventas ni AR = neutro 50
+  const cobros     = mrr === 0 && ar === 0 ? 50 : clamp(ar > 0 ? Math.max(0, 100 - (ar / Math.max(mrr, 1)) * 60) : 100);
+  // Pagos: penaliza si AP supera la caja. Sin AP = 100
+  const pagos      = ap === 0 ? 100 : clamp(Math.max(10, 100 - (ap / Math.max(availableCash, 1)) * 40));
+  // Liquidez: runway real. Sin caja ni AP ni costos = 50 neutro
+  const hasFinancials = availableCash > 0 || ap > 0 || costs > 0;
+  const runway     = !hasFinancials ? 1 : costs > 0 ? availableCash / costs : ap > 0 ? availableCash / ap : 2;
+  const liquidez   = !hasFinancials ? 50 : clamp(runway >= 3 ? 90 : runway >= 1 ? 60 : runway >= 0.5 ? 35 : 15);
   const eficiencia = clamp((ventas + margen) / 2);
   const overall    = Math.round((ventas + margen + cobros + pagos + liquidez + eficiencia) / 6);
 
-  return { ventas, margen, cobros, pagos, liquidez, eficiencia, overall };
+  return { ventas, margen, cobros, pagos, liquidez, eficiencia, overall, noData:false };
 }
 
 function scoreLabel(score:number) {
@@ -280,8 +287,13 @@ export default function DashboardPage() {
           <div>
             <div style={{ fontSize:10, fontWeight:600, color:'#86868B', letterSpacing:'0.8px', textTransform:'uppercase', marginBottom:4 }}>CENTRO DE MANDO</div>
             <div style={{ fontSize:15, fontWeight:500, color:'#1D1D1F' }}>Salud empresarial · Decisiones ejecutivas</div>
+            {(health as any).noData && (
+              <div style={{ fontSize:12, color:'#FF9F0A', marginTop:6, display:'flex', alignItems:'center', gap:4 }}>
+                ⚠️ Sin datos suficientes — registra ventas para activar el análisis
+              </div>
+            )}
           </div>
-          <ScoreRing score={health.overall} color={scoreColor}/>
+          <ScoreRing score={health.overall} color={health.overall === 0 ? '#AEAEB2' : scoreColor}/>
         </div>
 
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1.4fr', gap:24, marginBottom:20 }}>

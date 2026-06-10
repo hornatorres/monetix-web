@@ -100,6 +100,7 @@ function NewInvoiceForm() {
   const [showClientDD, setShowClientDD] = useState(false);
   const [date,     setDate]     = useState(new Date().toISOString().split('T')[0]);
   const [dueDate,  setDueDate]  = useState(() => { const d = new Date(); d.setDate(d.getDate()+30); return d.toISOString().split('T')[0]; });
+  const [purchaseOrder, setPurchaseOrder] = useState('');
   const [notes,    setNotes]    = useState('');
   const [lines,    setLines]    = useState<Line[]>([
     { productName:'', productCode:'', productType:'ONE_TIME', quantity:1, unitPrice:0, discountPct:0, subtotal:0 }
@@ -178,7 +179,7 @@ function NewInvoiceForm() {
       await authClient.post('/invoices', {
         clientId, clientName: client.name, clientRucDni: client.taxId,
         clientAddress: client.address ?? '', clientEmail: client.email ?? '',
-        invoiceDate: date, dueDate, currency: 'PEN', igvRate: 18, notes,
+        invoiceDate: date, dueDate, currency: 'PEN', igvRate: 18, purchaseOrderNumber: purchaseOrder || null, notes,
         items: lines.map((l, idx) => ({
           lineOrder: idx+1, productName: l.productName, productCode: l.productCode,
           productType: l.productType, quantity: Number(l.quantity),
@@ -263,18 +264,25 @@ function NewInvoiceForm() {
         {/* Sección: Condiciones */}
         <div className="mx-form-card">
           <div className="mx-form-title">Condiciones</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16 }}>
             <div>
               <label className="mx-label">Fecha de emisión</label>
               <input type="date" className="mx-input" value={date} onChange={e => setDate(e.target.value)} required />
             </div>
             <div>
-              <label className="mx-label">Fecha de vencimiento</label>
+              <label className="mx-label">Fecha de pago</label>
               <input type="date" className="mx-input" value={dueDate} onChange={e => setDueDate(e.target.value)} required />
             </div>
             <div>
-              <label className="mx-label">IGV (%)</label>
-              <input className="mx-input" value="18" readOnly style={{ background: '#F9F9FB', color: '#86868B' }} />
+              <label className="mx-label">Orden de compra</label>
+              <input className="mx-input" value={purchaseOrder} onChange={e => setPurchaseOrder(e.target.value)} placeholder="OC-001" />
+            </div>
+            <div>
+              <label className="mx-label">IGV</label>
+              <div style={{ position:'relative' }}>
+                <input className="mx-input" value="18" readOnly style={{ background:'#F9F9FB', color:'#86868B', paddingRight:36 }} />
+                <span style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'#86868B', pointerEvents:'none' }}>%</span>
+              </div>
             </div>
           </div>
         </div>
@@ -340,7 +348,7 @@ function NewInvoiceForm() {
                 <span>{formatCurrency(subtotal)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
-                <span style={{ color: '#86868B' }}>IGV (18%)</span>
+                <span style={{ color: '#86868B' }}>IGV 18%</span>
                 <span>{formatCurrency(igv)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 700, borderTop: '0.5px solid #E5E5EA', paddingTop: 8, marginTop: 4 }}>

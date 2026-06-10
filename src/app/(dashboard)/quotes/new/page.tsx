@@ -113,10 +113,18 @@ export default function NewQuotePage() {
         <div className="mx-form-card">
           <div className="mx-form-title">Condiciones</div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:16}}>
-            <div><label className="mx-label">Fecha</label><input type="date" className="mx-input" value={date} onChange={e=>setDate(e.target.value)} required/></div>
+            <div><label className="mx-label">Fecha de emisión</label><input type="date" className="mx-input" value={date} onChange={e=>setDate(e.target.value)} required/></div>
             <div><label className="mx-label">Válida hasta</label><input type="date" className="mx-input" value={validUntil} onChange={e=>setValidUntil(e.target.value)} required/></div>
-            <div><label className="mx-label">Notas</label><input className="mx-input" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Observaciones…"/></div>
-            <div><label className="mx-label">Condiciones</label><input className="mx-input" value={conditions} onChange={e=>setConditions(e.target.value)} placeholder="Condiciones de pago…"/></div>
+            <div style={{gridColumn:'1/-1', display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginTop:4}}>
+              <div>
+                <label className="mx-label">Notas</label>
+                <textarea className="mx-input" rows={2} maxLength={120} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Observaciones… (máx. 120 caracteres)" style={{resize:'none'}}/>
+              </div>
+              <div>
+                <label className="mx-label">Condiciones de pago</label>
+                <textarea className="mx-input" rows={2} maxLength={120} value={conditions} onChange={e=>setConditions(e.target.value)} placeholder="Condiciones de pago… (máx. 120 caracteres)" style={{resize:'none'}}/>
+              </div>
+            </div>
           </div>
         </div>
 

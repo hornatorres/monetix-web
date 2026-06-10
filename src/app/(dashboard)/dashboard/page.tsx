@@ -43,11 +43,17 @@ function computeHealth(kpis: DashboardData['kpis'], availableCash: number) {
   const ar        = Number(kpis.ar.value);
   const ap        = Number(kpis.ap.value);
 
+  // Ventas: % respecto a un target del 120% del MRR
   const ventas     = clamp(mrr > 0 ? Math.min((mrr / Math.max(mrr * 1.2, 1)) * 100, 100) : 0);
-  const margen     = clamp(marginPct);
-  const cobros     = clamp(ar > 0 ? Math.max(0, 100 - (ar / Math.max(mrr, 1)) * 100) : 100);
-  const pagos      = clamp(ap > 0 ? Math.max(0, 100 - (ap / Math.max(mrr + 1, 1)) * 50) : 100);
-  const liquidez   = clamp(availableCash > 0 ? Math.min((availableCash / Math.max(ap, mrr * 0.3, 1)) * 50, 100) : 30);
+  // Margen: directo del grossMarginPct (ya viene en 0-100)
+  const margen     = clamp(marginPct > 1 ? marginPct : marginPct * 100);
+  // Cobros: penaliza si AR > 30% del MRR (mucho dinero sin cobrar)
+  const cobros     = clamp(mrr > 0 && ar > 0 ? Math.max(0, 100 - (ar / mrr) * 60) : ar === 0 ? 100 : 50);
+  // Pagos: penaliza si AP > caja disponible (no se puede cubrir)
+  const pagos      = clamp(ap > 0 ? Math.max(10, 100 - (ap / Math.max(availableCash, 1)) * 40) : 100);
+  // Liquidez: runway en meses (caja / costos). Sin costos: basado en caja vs AP
+  const runway     = costs > 0 ? availableCash / (costs / 1) : (ap > 0 ? availableCash / ap : 1);
+  const liquidez   = clamp(runway >= 3 ? 90 : runway >= 1 ? 60 : runway >= 0.5 ? 35 : 15);
   const eficiencia = clamp((ventas + margen) / 2);
   const overall    = Math.round((ventas + margen + cobros + pagos + liquidez + eficiencia) / 6);
 
@@ -150,9 +156,9 @@ function KpiCard({ icon, label, value, sub, hint, color='#1D1D1F', onClick }:{
               style={{ width:16, height:16, borderRadius:'50%', background:'#F2F2F7', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, color:'#86868B', lineHeight:1, padding:0 }}
             >?</button>
             {showHint && (
-              <div style={{ position:'absolute', top:22, right:0, background:'#1D1D1F', color:'#fff', fontSize:11, lineHeight:1.5, padding:'8px 12px', borderRadius:10, width:200, zIndex:99, boxShadow:'0 4px 16px rgba(0,0,0,0.18)', whiteSpace:'normal' }}>
+              <div style={{ position:'absolute', top:22, right:0, background:'#fff', color:'#3A3A3C', fontSize:11, lineHeight:1.5, padding:'8px 12px', borderRadius:10, width:220, zIndex:99, boxShadow:'0 4px 16px rgba(0,0,0,0.10)', border:'0.5px solid #E5E5EA', whiteSpace:'normal' }}>
                 {hint}
-                <div style={{ position:'absolute', top:-5, right:6, width:0, height:0, borderLeft:'5px solid transparent', borderRight:'5px solid transparent', borderBottom:'5px solid #1D1D1F' }}/>
+                <div style={{ position:'absolute', top:-5, right:6, width:0, height:0, borderLeft:'5px solid transparent', borderRight:'5px solid transparent', borderBottom:'5px solid #E5E5EA' }}/>
               </div>
             )}
           </div>
@@ -217,7 +223,7 @@ export default function DashboardPage() {
     fullMark: 100,
   }));
 
-  const chartData = history.filter(h => Number(h.salesIssued) > 0 || Number(h.purchasesIssued) > 0 || history.indexOf(h) >= history.length - 6).map(h => ({
+  const chartData = history.slice(-12).map(h => ({
     name:     h.period.slice(5),
     Ingresos: Number(h.salesIssued),
     Gastos:   Number(h.purchasesIssued),
@@ -234,9 +240,9 @@ export default function DashboardPage() {
       {/* KPI Row — 5 indicadores */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12, marginBottom:16 }}>
         <KpiCard icon={<TrendingUp size={15}/>} label="MRR" value={fmtAbbr(kpis.mrr.value)} color="#0071E3"
-          hint="Monthly Recurring Revenue — ingresos facturados en el mes actual, incluyendo ventas únicas y suscripciones."/>
+          hint="Monthly Recurring Revenue — ingresos facturados en el mes actual."/>
         <KpiCard icon={<TrendingUp size={15}/>} label="ARR" value={fmtAbbr(kpis.arr.value)} color="#5856D6"
-          hint="Annual Recurring Revenue — proyección anual del MRR actual (MRR × 12). Indicador clave para evaluar el crecimiento sostenible del negocio."/>
+          hint="Annual Recurring Revenue — proyección anual del MRR actual (MRR × 12)."/>
         <KpiCard icon={<ShoppingCart size={15}/>} label="Gastos" value={fmtAbbr(kpis.totalCosts.value)} color="#FF3B30"/>
         <KpiCard
           icon={<CreditCard size={15}/>}

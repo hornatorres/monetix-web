@@ -8,7 +8,7 @@ import { formatCurrency, errMsg } from '@/lib/utils';
 import { ArrowLeft, Save } from 'lucide-react';
 
 interface Product { id:string;code:string;name:string;description:string;type:string;unitPrice:number;currency:string;igvExempt:boolean;accountCodeIncome:string|null;accountCodeCogs:string|null;isActive:boolean; }
-const TL: Record<string,string> = { ONE_TIME:'Único',SUBSCRIPTION:'Suscripción',METERED:'Medido',ASSET:'Activo' };
+const TL: Record<string,string> = { ONE_TIME:'Pago único',SUBSCRIPTION:'Pago por suscripción',METERED:'Pago por consumo',ASSET:'Activo fijo' };
 
 export default function ProductDetailPage() {
   const { id }=useParams<{id:string}>();
